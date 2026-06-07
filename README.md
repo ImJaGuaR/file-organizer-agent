@@ -17,6 +17,7 @@ Interactive mode is designed as an AI tool: it tries AI labels first for all fil
 - Supports preview-first delete tasks, such as emptying a trash folder.
 - Avoids overwriting files by renaming duplicates.
 - Creates only the destination folders needed by the current plan.
+- Learns filename corrections from interactive feedback and reuses them later.
 - Skips risky files and places uncertain files in `Review`.
 - Writes JSON and Markdown reports.
 - Supports simple memory rules for future corrections.
@@ -262,6 +263,15 @@ The agent will:
 
 After the plan, type `APPLY` and press Enter to move the files in the same run. Press Enter without typing `APPLY` to leave the preview unchanged.
 
+If the agent chooses the wrong folder, correct it before applying:
+
+```text
+FIX 2 Coursework/Text
+FIX 4 Finance/Receipts
+```
+
+The number is the plan item number. The folder is the category/subfolder you want. The agent updates the plan, saves the correction for that filename, and will remember it in future runs.
+
 Delete tasks use the same preview-first approval flow:
 
 ```text
@@ -316,7 +326,13 @@ You can teach the agent simple extension rules:
 python -m file_organizer --learn-extension .ipynb Code/Notebooks
 ```
 
-Then future runs will use that saved rule.
+Interactive corrections also teach the agent. For example:
+
+```text
+FIX 1 Projects/Python
+```
+
+That saves a memory rule for that filename, so future runs can reuse your correction.
 
 ## Output Structure
 

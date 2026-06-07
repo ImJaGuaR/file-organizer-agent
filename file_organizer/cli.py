@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
+import re
 import sys
 from pathlib import Path
 
@@ -238,13 +240,22 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if interactive_apply_prompt and not apply_changes:
-        answer = input("\nType APPLY to move files, or press Enter to leave preview: ").strip()
-        if answer == "APPLY":
-            errors = execute_plan(actions, apply=True)
-            apply_changes = True
-            print_apply_result(errors)
-        else:
-            print("Okay, no files were moved.")
+        while True:
+            answer = input("\nType APPLY to apply, FIX 2 Folder/Subfolder to correct, or Enter to leave preview: ").strip()
+            if answer == "APPLY":
+                errors = execute_plan(actions, apply=True)
+                apply_changes = True
+                print_apply_result(errors)
+                break
+            if not answer:
+                print("Okay, no files were moved.")
+                break
+            corrected_actions = _apply_interactive_correction(answer, actions, output_folder, memory)
+            if corrected_actions is None:
+                print("I did not understand that correction. Example: FIX 2 Coursework/Text")
+                continue
+            actions = corrected_actions
+            print_plan(actions, dry_run=True, interactive_apply_prompt=True)
 
     report = OrganizationReport(
         target_folder=target_folder,
@@ -290,3 +301,92 @@ def _can_auto_apply(actions: list[object], min_confidence: float) -> bool:
 
 def _delete_targets(target_folder: Path) -> list[Path]:
     return sorted(target_folder.iterdir())
+
+
+def _apply_interactive_correction(
+    answer: str,
+    actions: list[object],
+    output_folder: Path,
+    memory: OrganizerMemory,
+) -> list[object] | None:
+    parts = answer.strip().split(maxsplit=2)
+    if len(parts) != 3 or parts[0].upper() != "FIX":
+        return None
+    try:
+        index = int(parts[1]) - 1
+    except ValueError:
+        return None
+    if index < 0 or index >= len(actions):
+        return None
+    action = actions[index]
+    if action.action != "move":
+        return None
+
+    folder = parts[2].strip().strip("\"'")
+    category, subfolder = _split_folder(folder)
+    if not category:
+        return None
+
+    corrected = Classification(
+        category=category,
+        subfolder=subfolder,
+        confidence=1.0,
+        reason="User correction saved to memory.",
+        source="memory",
+        summary=action.classification.summary,
+    )
+    destination = _corrected_destination(action.source, corrected, output_folder, actions, index)
+    corrected_action = replace(
+        action,
+        destination=destination,
+        classification=corrected,
+        reason=corrected.reason,
+    )
+    memory.learn_name(action.source.name, _folder_text(category, subfolder))
+    return [corrected_action if current_index == index else current for current_index, current in enumerate(actions)]
+
+
+def _split_folder(folder: str) -> tuple[str, str | None]:
+    parts = [_sanitize_folder_part(part) for part in folder.replace("\\", "/").split("/") if part.strip()]
+    parts = [part for part in parts if part]
+    if not parts:
+        return "", None
+    if len(parts) == 1:
+        return parts[0], None
+    return parts[0], "/".join(parts[1:])
+
+
+def _folder_text(category: str, subfolder: str | None) -> str:
+    return f"{category}/{subfolder}" if subfolder else category
+
+
+def _sanitize_folder_part(value: str) -> str:
+    value = re.sub(r"[^A-Za-z0-9 ._-]+", " ", value).strip(" ._-")
+    value = re.sub(r"\s+", " ", value)
+    if value in {"", ".", ".."}:
+        return ""
+    return value[:40]
+
+
+def _corrected_destination(
+    source: Path,
+    classification: Classification,
+    output_folder: Path,
+    actions: list[object],
+    corrected_index: int,
+) -> Path:
+    destination_dir = output_folder.joinpath(*classification.folder_parts)
+    destination = destination_dir / source.name
+    reserved = {
+        action.destination
+        for index, action in enumerate(actions)
+        if index != corrected_index and getattr(action, "action", None) == "move"
+    }
+    if destination not in reserved and not destination.exists():
+        return destination
+    counter = 1
+    while True:
+        candidate = destination_dir / f"{destination.stem} ({counter}){destination.suffix}"
+        if candidate not in reserved and not candidate.exists():
+            return candidate
+        counter += 1

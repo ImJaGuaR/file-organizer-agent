@@ -167,3 +167,41 @@ def test_interactive_delete_apply_removes_files_and_folders(tmp_path: Path, caps
     assert "01. DELETE" in output
     assert not source.exists()
     assert not nested.exists()
+
+
+def test_interactive_fix_updates_plan_and_learns_filename(tmp_path: Path, capsys, monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    target = tmp_path / "messy"
+    memory_file = tmp_path / "memory.json"
+    target.mkdir()
+    source = target / "notes.txt"
+    source.write_text("plain notes", encoding="utf-8")
+    old_stdin = sys.stdin
+    sys.stdin = TtyInput("show the plan\nFIX 1 Coursework/Text\n\n")
+    try:
+        exit_code = main(
+            [
+                "--interactive",
+                str(target),
+                "--memory-file",
+                str(memory_file),
+                "--env-file",
+                str(tmp_path / "missing.env"),
+                "--no-report",
+            ]
+        )
+    finally:
+        sys.stdin = old_stdin
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Coursework/Text" in output
+    assert "User correction saved to memory." in output
+    assert source.exists()
+
+    exit_code = main([str(target), "--memory-file", str(memory_file), "--no-report"])
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Coursework/Text" in output
+    assert "learned memory" in output

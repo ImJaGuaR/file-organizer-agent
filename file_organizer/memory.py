@@ -8,7 +8,7 @@ from typing import Any
 class OrganizerMemory:
     def __init__(self, path: Path):
         self.path = path.expanduser()
-        self.data: dict[str, Any] = {"extensions": {}, "name_contains": {}}
+        self.data: dict[str, Any] = {"extensions": {}, "exact_names": {}, "name_contains": {}}
         self.load()
 
     def load(self) -> None:
@@ -35,12 +35,19 @@ class OrganizerMemory:
         self.data.setdefault("extensions", {})[normalized] = folder
         self.save()
 
+    def learn_name(self, name: str, folder: str) -> None:
+        self.data.setdefault("exact_names", {})[name.lower()] = folder
+        self.save()
+
     def classify_extension(self, extension: str) -> tuple[str, str | None] | None:
         folder = self.data.get("extensions", {}).get(extension.lower())
         return _split_folder(folder) if folder else None
 
     def classify_name(self, name: str) -> tuple[str, str | None] | None:
         lowered = name.lower()
+        exact_folder = self.data.get("exact_names", {}).get(lowered)
+        if exact_folder:
+            return _split_folder(exact_folder)
         for pattern, folder in self.data.get("name_contains", {}).items():
             if pattern.lower() in lowered:
                 return _split_folder(folder)

@@ -44,7 +44,10 @@ def print_plan(actions: list[MoveAction], dry_run: bool, interactive_apply_promp
     print(rule())
     if dry_run:
         if interactive_apply_prompt:
-            print(status("No files were changed yet.", "yellow") + " Type APPLY and press Enter to apply this plan.")
+            print(
+                status("No files were changed yet.", "yellow")
+                + " Type APPLY to apply, or FIX 2 Folder/Subfolder to correct and teach the agent."
+            )
         else:
             print(status("No files were changed.", "yellow") + " Run again with --apply to apply the plan.")
     else:
