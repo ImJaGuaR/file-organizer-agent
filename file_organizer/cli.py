@@ -10,7 +10,7 @@ from .ai_labeler import AILabeler
 from .auth import load_dotenv, masked
 from .classifier import choose_final_classification, classify_with_rules
 from .config import DEFAULT_OUTPUT_FOLDER, default_memory_path
-from .interactive import configure_from_prompt
+from .interactive import configure_from_prompt, _resolve_output
 from .memory import OrganizerMemory
 from .models import Classification, OrganizationReport
 from .mover import execute_plan
@@ -250,6 +250,14 @@ def main(argv: list[str] | None = None) -> int:
             if not answer:
                 print("Okay, no files were moved.")
                 break
+            output_correction = _resolve_output_correction(answer)
+            if output_correction is not None and task == "organize":
+                output_folder = output_correction.resolve()
+                actions = _retarget_move_actions(actions, output_folder)
+                print(f"Okay, I updated the output folder to {output_folder}.")
+                print_plan(actions, dry_run=True, interactive_apply_prompt=True)
+                continue
+
             corrected_actions = _apply_interactive_correction(answer, actions, output_folder, memory)
             if corrected_actions is None:
                 print("I did not understand that correction. Example: FIX 2 Coursework/Text")
@@ -301,6 +309,40 @@ def _can_auto_apply(actions: list[object], min_confidence: float) -> bool:
 
 def _delete_targets(target_folder: Path) -> list[Path]:
     return sorted(target_folder.iterdir())
+
+
+def _resolve_output_correction(answer: str) -> Path | None:
+    normalized = answer.strip()
+    if normalized.upper().startswith("FIX ALL "):
+        normalized = normalized[8:].strip()
+    if normalized.upper().startswith("FIX "):
+        normalized = normalized[4:].strip()
+    return _resolve_output(normalized)
+
+
+def _retarget_move_actions(actions: list[object], output_folder: Path) -> list[object]:
+    reserved: set[Path] = set()
+    retargeted = []
+    for action in actions:
+        if action.action != "move":
+            retargeted.append(action)
+            continue
+        destination_dir = output_folder.joinpath(*action.classification.folder_parts)
+        destination = _unique_destination(destination_dir / action.source.name, reserved)
+        reserved.add(destination)
+        retargeted.append(replace(action, destination=destination))
+    return retargeted
+
+
+def _unique_destination(destination: Path, reserved_destinations: set[Path]) -> Path:
+    if destination not in reserved_destinations and not destination.exists():
+        return destination
+    counter = 1
+    while True:
+        candidate = destination.parent / f"{destination.stem} ({counter}){destination.suffix}"
+        if candidate not in reserved_destinations and not candidate.exists():
+            return candidate
+        counter += 1
 
 
 def _apply_interactive_correction(

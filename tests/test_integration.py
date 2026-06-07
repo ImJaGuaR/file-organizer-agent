@@ -205,3 +205,45 @@ def test_interactive_fix_updates_plan_and_learns_filename(tmp_path: Path, capsys
     assert exit_code == 0
     assert "Coursework/Text" in output
     assert "learned memory" in output
+
+
+def test_interactive_natural_language_output_correction_retargets_plan(tmp_path: Path, capsys, monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    target = tmp_path / "messy"
+    target.mkdir()
+    source = target / "notes.txt"
+    source.write_text("plain notes", encoding="utf-8")
+    old_stdin = sys.stdin
+    sys.stdin = TtyInput("show the plan\nmove to user folder\n\n")
+    try:
+        exit_code = main(["--interactive", str(target), "--env-file", str(tmp_path / "missing.env"), "--no-report"])
+    finally:
+        sys.stdin = old_stdin
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert f"Okay, I updated the output folder to {Path.home()}" in output
+    assert "to   ~/Documents/Text/notes.txt" in output
+    assert source.exists()
+
+
+def test_interactive_fix_all_output_correction_retargets_plan(tmp_path: Path, capsys, monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    target = tmp_path / "messy"
+    target.mkdir()
+    source = target / "notes.txt"
+    source.write_text("plain notes", encoding="utf-8")
+    old_stdin = sys.stdin
+    sys.stdin = TtyInput("show the plan\nFIX all move to user folder\n\n")
+    try:
+        exit_code = main(["--interactive", str(target), "--env-file", str(tmp_path / "missing.env"), "--no-report"])
+    finally:
+        sys.stdin = old_stdin
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert f"Okay, I updated the output folder to {Path.home()}" in output
+    assert "to   ~/Documents/Text/notes.txt" in output
+    assert source.exists()
