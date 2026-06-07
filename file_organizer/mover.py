@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from shutil import move
+from shutil import move, rmtree
 
 from .models import MoveAction
 
@@ -12,6 +12,15 @@ def execute_plan(actions: list[MoveAction], apply: bool = False) -> list[str]:
         return errors
 
     for action in actions:
+        if action.action == "delete":
+            try:
+                if action.source.is_dir() and not action.source.is_symlink():
+                    rmtree(action.source)
+                else:
+                    action.source.unlink()
+            except OSError as exc:
+                errors.append(f"{action.source}: {exc}")
+            continue
         if action.action != "move":
             continue
         try:

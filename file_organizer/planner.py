@@ -54,6 +54,26 @@ def build_move_plan(
     return actions
 
 
+def build_delete_plan_from_paths(paths: list[Path]) -> list[MoveAction]:
+    classification = Classification(
+        category="Delete",
+        subfolder=None,
+        confidence=1.0,
+        reason="User requested deletion after preview.",
+        source="user-request",
+    )
+    return [
+        MoveAction(
+            source=path,
+            destination=path,
+            classification=classification,
+            action="delete",
+            reason=classification.reason,
+        )
+        for path in paths
+    ]
+
+
 def _unique_destination(destination: Path, reserved_destinations: set[Path]) -> Path:
     if destination not in reserved_destinations and not destination.exists():
         return destination

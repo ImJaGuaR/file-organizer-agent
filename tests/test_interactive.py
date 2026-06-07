@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from file_organizer.interactive import _resolve_output, _resolve_target
+from file_organizer.interactive import _resolve_output, _resolve_target, _resolve_task
 
 
 def test_absolute_demo_path_stays_path() -> None:
@@ -25,3 +25,12 @@ def test_home_folder_phrase_sets_home_output() -> None:
 
 def test_explicit_output_path_is_used() -> None:
     assert _resolve_output("organize downloads output /tmp/sorted") == Path("/tmp/sorted")
+
+
+def test_delete_words_set_delete_task() -> None:
+    assert _resolve_task("delete trash in the trash can") == "delete"
+    assert _resolve_task("empty trash can") == "delete"
+
+
+def test_organize_words_default_to_organize_task() -> None:
+    assert _resolve_task("organize my Downloads") == "organize"

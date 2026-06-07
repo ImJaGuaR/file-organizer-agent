@@ -125,3 +125,45 @@ def test_interactive_defaults_to_ai_first(tmp_path: Path, capsys, monkeypatch) -
     assert "AI requested, but" in output
     assert "local rules" not in output
     assert source.exists()
+
+
+def test_interactive_delete_preview_leaves_files(tmp_path: Path, capsys) -> None:
+    target = tmp_path / "trash"
+    target.mkdir()
+    source = target / "old.txt"
+    source.write_text("old", encoding="utf-8")
+    old_stdin = sys.stdin
+    sys.stdin = TtyInput("delete folder\n\n")
+    try:
+        exit_code = main(["--interactive", str(target), "--no-report"])
+    finally:
+        sys.stdin = old_stdin
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Task            Delete" in output
+    assert "01. DELETE" in output
+    assert "No files were changed yet." in output
+    assert source.exists()
+
+
+def test_interactive_delete_apply_removes_files_and_folders(tmp_path: Path, capsys) -> None:
+    target = tmp_path / "trash"
+    nested = target / "old-folder"
+    nested.mkdir(parents=True)
+    source = target / "old.txt"
+    nested_file = nested / "nested.txt"
+    source.write_text("old", encoding="utf-8")
+    nested_file.write_text("nested", encoding="utf-8")
+    old_stdin = sys.stdin
+    sys.stdin = TtyInput("delete folder\nAPPLY\n")
+    try:
+        exit_code = main(["--interactive", str(target), "--no-report"])
+    finally:
+        sys.stdin = old_stdin
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "01. DELETE" in output
+    assert not source.exists()
+    assert not nested.exists()

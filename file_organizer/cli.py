@@ -12,7 +12,7 @@ from .interactive import configure_from_prompt
 from .memory import OrganizerMemory
 from .models import Classification, OrganizationReport
 from .mover import execute_plan
-from .planner import build_move_plan
+from .planner import build_delete_plan_from_paths, build_move_plan
 from .reporter import print_apply_result, print_plan, write_reports
 from .scanner import scan_folder
 
@@ -172,14 +172,22 @@ def main(argv: list[str] | None = None) -> int:
     if not target_folder.exists() or not target_folder.is_dir():
         parser.error(f"target folder does not exist or is not a directory: {target_folder}")
 
-    output_folder = Path(args.output).expanduser().resolve() if args.output else target_folder / DEFAULT_OUTPUT_FOLDER
+    task = getattr(args, "task", "organize")
+    if task == "delete" and args.output is None:
+        output_folder = Path.home() / ".file-organizer-agent"
+    else:
+        output_folder = Path(args.output).expanduser().resolve() if args.output else target_folder / DEFAULT_OUTPUT_FOLDER
     output_folder = output_folder.resolve()
 
-    signals = scan_folder(
-        target_folder=target_folder,
-        output_folder=output_folder,
-        recursive=args.recursive,
-        include_hidden=args.include_hidden,
+    signals = (
+        []
+        if task == "delete"
+        else scan_folder(
+            target_folder=target_folder,
+            output_folder=output_folder,
+            recursive=args.recursive,
+            include_hidden=args.include_hidden,
+        )
     )
     ai_labeler = AILabeler.from_environment(
         model=args.model,
@@ -190,24 +198,27 @@ def main(argv: list[str] | None = None) -> int:
         scope=args.ai_scope,
         allow_custom_folders=args.ai_custom_folders,
     )
-    classifications: dict[Path, Classification] = {}
-    ai_calls_remaining = args.ai_max_files
+    if task == "delete":
+        actions = build_delete_plan_from_paths(_delete_targets(target_folder))
+    else:
+        classifications: dict[Path, Classification] = {}
+        ai_calls_remaining = args.ai_max_files
 
-    for signal in signals:
-        rule_classification = classify_with_rules(signal, memory)
-        if ai_calls_remaining is not None and ai_calls_remaining <= 0:
-            ai_classification = None
-        else:
-            ai_classification = ai_labeler.classify(signal, rule_classification)
-            if ai_classification is not None and ai_classification.source.startswith("ai-"):
-                ai_calls_remaining = None if ai_calls_remaining is None else ai_calls_remaining - 1
-        classifications[signal.path] = choose_final_classification(
-            rule_classification,
-            ai_classification,
-            prefer_ai=args.ai_prefer,
-        )
+        for signal in signals:
+            rule_classification = classify_with_rules(signal, memory)
+            if ai_calls_remaining is not None and ai_calls_remaining <= 0:
+                ai_classification = None
+            else:
+                ai_classification = ai_labeler.classify(signal, rule_classification)
+                if ai_classification is not None and ai_classification.source.startswith("ai-"):
+                    ai_calls_remaining = None if ai_calls_remaining is None else ai_calls_remaining - 1
+            classifications[signal.path] = choose_final_classification(
+                rule_classification,
+                ai_classification,
+                prefer_ai=args.ai_prefer,
+            )
 
-    actions = build_move_plan(signals, classifications, output_folder)
+        actions = build_move_plan(signals, classifications, output_folder)
     interactive_apply_prompt = bool(getattr(args, "interactive_apply_prompt", False))
     apply_changes = args.apply
     if not apply_changes and args.auto_apply_min_confidence is not None and not interactive_apply_prompt:
@@ -250,6 +261,7 @@ def main(argv: list[str] | None = None) -> int:
             "ai_custom_folders": args.ai_custom_folders if args.use_ai else None,
             "auto_apply_min_confidence": args.auto_apply_min_confidence,
             "recursive": args.recursive,
+            "task": task,
         },
     )
 
@@ -274,3 +286,7 @@ def _can_auto_apply(actions: list[object], min_confidence: float) -> bool:
         if classification.source in {"ai-error", "ai-fallback", "ai-unavailable"}:
             return False
     return True
+
+
+def _delete_targets(target_folder: Path) -> list[Path]:
+    return sorted(target_folder.iterdir())

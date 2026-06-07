@@ -14,6 +14,7 @@ Interactive mode is designed as an AI tool: it tries AI labels first for all fil
 - Organizes by purpose first when possible, then file type. For example, a voice memo about a project idea goes to `Ideas/Audio`, not only `Audio`.
 - Creates a safe move plan before changing anything.
 - In interactive mode, type `APPLY` after previewing the plan to move files.
+- Supports preview-first delete tasks, such as emptying a trash folder.
 - Avoids overwriting files by renaming duplicates.
 - Creates only the destination folders needed by the current plan.
 - Skips risky files and places uncertain files in `Review`.
@@ -261,6 +262,16 @@ The agent will:
 
 After the plan, type `APPLY` and press Enter to move the files in the same run. Press Enter without typing `APPLY` to leave the preview unchanged.
 
+Delete tasks use the same preview-first approval flow:
+
+```text
+delete trash in the trash can
+empty trash can
+delete folder /path/to/folder
+```
+
+The app lists the files or folders that would be deleted. Nothing is deleted unless you type `APPLY`.
+
 You can also force the prompt mode:
 
 ```bash
@@ -282,6 +293,7 @@ organize my Downloads
 organize my Downloads and move into the user folder
 organize folder /path/to/folder and output /path/to/destination
 organize my Desktop and create folders if needed
+delete trash in the trash can
 ```
 
 If you use direct CLI mode, add AI flags explicitly:
@@ -362,7 +374,7 @@ Organized/
 
 ## Safety
 
-The agent never moves files unless you pass `--apply` in direct CLI mode or type `APPLY` after an interactive preview. It also avoids overwriting by generating names like `file (1).pdf` when a destination already exists.
+The agent never moves or deletes files unless you pass `--apply` in direct CLI mode or type `APPLY` after an interactive preview. It also avoids overwriting by generating names like `file (1).pdf` when a destination already exists.
 
 ## AI Authentication Notes
 

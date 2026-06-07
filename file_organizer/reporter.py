@@ -14,13 +14,14 @@ def print_plan(actions: list[MoveAction], dry_run: bool, interactive_apply_promp
     mode = "Preview plan" if dry_run else "Applying plan"
     tone = "yellow" if dry_run else "green"
     move_count = sum(1 for action in actions if action.action == "move")
+    delete_count = sum(1 for action in actions if action.action == "delete")
     skip_count = sum(1 for action in actions if action.action == "skip")
 
     print()
     print(heading("Organization Plan"))
     print(rule())
     print(f"{label('Mode')}       {status(mode, tone)}")
-    print(f"{label('Files')}      {len(actions)} scanned, {move_count} move, {skip_count} skip")
+    print(f"{label('Files')}      {len(actions)} scanned, {move_count} move, {delete_count} delete, {skip_count} skip")
     print(rule())
 
     for index, action in enumerate(actions, start=1):
@@ -30,8 +31,11 @@ def print_plan(actions: list[MoveAction], dry_run: bool, interactive_apply_promp
         tone = "green" if action.action == "move" else "yellow"
 
         print(f"{status(f'{index:02d}. {action.action.upper()}', tone)}  {category}")
-        print(f"    {muted('from')} {shorten_path(action.source)}")
-        print(f"    {muted('to  ')} {shorten_path(action.destination)}")
+        if action.action == "delete":
+            print(f"    {muted('file')} {shorten_path(action.source)}")
+        else:
+            print(f"    {muted('from')} {shorten_path(action.source)}")
+            print(f"    {muted('to  ')} {shorten_path(action.destination)}")
         if action.classification.summary:
             print(f"    {label('summary')} {action.classification.summary}")
         print(f"    {label('why')}     {action.reason}")
@@ -40,11 +44,11 @@ def print_plan(actions: list[MoveAction], dry_run: bool, interactive_apply_promp
     print(rule())
     if dry_run:
         if interactive_apply_prompt:
-            print(status("No files were moved yet.", "yellow") + " Type APPLY and press Enter to apply this plan.")
+            print(status("No files were changed yet.", "yellow") + " Type APPLY and press Enter to apply this plan.")
         else:
-            print(status("No files were moved.", "yellow") + " Run again with --apply to move them.")
+            print(status("No files were changed.", "yellow") + " Run again with --apply to apply the plan.")
     else:
-        print(status("Done.", "green") + " Files were moved according to the plan.")
+        print(status("Done.", "green") + " Files were changed according to the plan.")
 
 
 def print_apply_result(errors: list[str]) -> None:
@@ -55,7 +59,7 @@ def print_apply_result(errors: list[str]) -> None:
         for error in errors:
             print(f"- {error}")
     else:
-        print(status("Done.", "green") + " Files were moved according to the approved plan.")
+        print(status("Done.", "green") + " Files were changed according to the approved plan.")
 
 
 def _category_label(category: str, subfolder: str | None) -> str:
@@ -67,6 +71,7 @@ def _source_label(source: str) -> str:
     labels = {
         "rules": "local rules",
         "memory": "learned memory",
+        "user-request": "user request",
         "ai-openai-compatible": "AI label",
         "ai-openai": "AI label",
         "ai-ollama": "AI label",
@@ -127,6 +132,7 @@ def _report_to_markdown(report: OrganizationReport) -> str:
         f"- Dry run: `{report.dry_run}`",
         f"- Files scanned: `{len(report.actions)}`",
         f"- Moves planned/executed: `{counts.get('move', 0)}`",
+        f"- Deletes planned/executed: `{counts.get('delete', 0)}`",
         f"- Skipped: `{counts.get('skip', 0)}`",
         "",
         "## Categories",

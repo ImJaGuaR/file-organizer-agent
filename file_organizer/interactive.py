@@ -13,17 +13,19 @@ def configure_from_prompt(args: Namespace) -> bool:
         return False
 
     print(heading("File Organizer Agent"))
-    print(muted("Tell the agent which folder to organize. It will show a plan before moving anything."))
-    print(muted("Example: organize the sample folder with AI labels, create folders if needed, and show the plan"))
+    print(muted("Tell the agent what folder task to do. It will show a plan before changing anything."))
+    print(muted("Example: organize the sample folder, or delete trash in the trash can"))
     request = input("> ").strip()
     if not request:
         return False
 
     args.interactive_apply_prompt = True
-    target = Path(args.target).expanduser() if args.target else _resolve_target(request)
+    task = _resolve_task(request)
+    args.task = task
+    target = Path(args.target).expanduser() if args.target else _resolve_target(request, task=task)
     while target is None:
-        answer = input("Which folder should I organize? ").strip()
-        target = _resolve_target(answer) or Path(answer).expanduser()
+        answer = input("Which folder should I use? ").strip()
+        target = _resolve_target(answer, task=task) or Path(answer).expanduser()
 
     args.target = str(target)
     lower = request.lower()
@@ -46,7 +48,14 @@ def configure_from_prompt(args: Namespace) -> bool:
     return True
 
 
-def _resolve_target(text: str) -> Path | None:
+def _resolve_task(text: str) -> str:
+    lower = text.lower()
+    if _has_any(lower, ["delete", "remove", "clear", "empty", "trash can", "trash bin"]):
+        return "delete"
+    return "organize"
+
+
+def _resolve_target(text: str, task: str = "organize") -> Path | None:
     lower = text.lower()
     home = Path.home()
     stripped = text.strip().strip("\"'")
@@ -63,6 +72,8 @@ def _resolve_target(text: str) -> Path | None:
         if candidate:
             return Path(candidate).expanduser()
 
+    if _has_any(lower, ["trash can", "trash bin", " trash", "recycle bin"]):
+        return _trash_folder()
     if "download" in lower:
         return home / "Downloads"
     if "desktop" in lower:
@@ -72,6 +83,15 @@ def _resolve_target(text: str) -> Path | None:
     if "sample" in lower or "demo" in lower:
         return Path("sample_messy_folder")
     return None
+
+
+def _trash_folder() -> Path:
+    home = Path.home()
+    if sys.platform == "darwin":
+        return home / ".Trash"
+    if sys.platform.startswith("win"):
+        return Path.home() / "Recycle Bin"
+    return home / ".local" / "share" / "Trash" / "files"
 
 
 def _resolve_output(text: str) -> Path | None:
@@ -130,7 +150,8 @@ def _has_any(text: str, phrases: list[str]) -> bool:
 
 
 def _print_interactive_summary(args: Namespace) -> None:
-    mode = "Move files after confirmation" if args.apply else "Preview plan only"
+    task = getattr(args, "task", "organize")
+    mode = "Apply after confirmation" if args.apply else "Preview plan only"
     folder_strategy = (
         "Create purpose-based folders when needed"
         if args.ai_custom_folders
@@ -140,9 +161,12 @@ def _print_interactive_summary(args: Namespace) -> None:
     print()
     print(heading("Agent Setup"))
     print(rule())
+    print(f"{label('Task')}            {task.title()}")
     print(f"{label('Target')}          {args.target}")
-    print(f"{label('Output')}          {args.output or 'inside target folder: Organized'}")
+    if task == "organize":
+        print(f"{label('Output')}          {args.output or 'inside target folder: Organized'}")
     print(f"{label('Mode')}            {status(mode, 'green' if args.apply else 'yellow')}")
-    print(f"{label('Folders')}         {folder_strategy}")
+    if task == "organize":
+        print(f"{label('Folders')}         {folder_strategy}")
     print(rule())
     print()
