@@ -16,13 +16,14 @@ def scan_folder(
 ) -> list[FileSignal]:
     target_folder = target_folder.expanduser().resolve()
     output_folder = output_folder.expanduser().resolve()
+    exclude_output_folder = _is_inside(output_folder, target_folder)
     pattern = "**/*" if recursive else "*"
     signals: list[FileSignal] = []
 
     for path in sorted(target_folder.glob(pattern)):
         if not path.is_file():
             continue
-        if _is_inside(path.resolve(), output_folder):
+        if exclude_output_folder and _is_inside(path.resolve(), output_folder):
             continue
         if not include_hidden and _has_hidden_part(path.relative_to(target_folder)):
             continue
