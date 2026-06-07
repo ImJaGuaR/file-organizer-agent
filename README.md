@@ -180,11 +180,11 @@ python -m file_organizer
 Example prompt:
 
 ```text
-organize my Downloads with LM Studio AI, create folders if needed, and move the files under my home folder
+organize the sample folder with AI labels, create folders if needed, and show the plan
 ```
 
-The agent will interpret the request, show the target, output folder, AI settings, and whether it plans to move files. If the request would move files, it asks for confirmation first.
-The interactive screen uses readable labels such as `Intelligence`, `Folder strategy`, and `Mode` instead of internal option names.
+The agent will interpret the request, show the target, output folder, mode, and folder strategy, then print a preview plan first.
+After the plan, type `APPLY` and press Enter to move the files in the same run. Press Enter without typing `APPLY` to leave the preview unchanged.
 
 You can also force the prompt mode:
 

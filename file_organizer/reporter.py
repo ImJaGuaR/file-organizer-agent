@@ -10,7 +10,7 @@ from .config import REPORTS_FOLDER
 from .models import MoveAction, OrganizationReport
 
 
-def print_plan(actions: list[MoveAction], dry_run: bool) -> None:
+def print_plan(actions: list[MoveAction], dry_run: bool, interactive_apply_prompt: bool = False) -> None:
     mode = "Preview plan" if dry_run else "Applying plan"
     tone = "yellow" if dry_run else "green"
     move_count = sum(1 for action in actions if action.action == "move")
@@ -39,9 +39,23 @@ def print_plan(actions: list[MoveAction], dry_run: bool) -> None:
         print()
     print(rule())
     if dry_run:
-        print(status("No files were moved.", "yellow") + " Run again with --apply, or ask the interactive agent to move them.")
+        if interactive_apply_prompt:
+            print(status("No files were moved yet.", "yellow") + " Type APPLY and press Enter to apply this plan.")
+        else:
+            print(status("No files were moved.", "yellow") + " Run again with --apply to move them.")
     else:
         print(status("Done.", "green") + " Files were moved according to the plan.")
+
+
+def print_apply_result(errors: list[str]) -> None:
+    print()
+    print(rule())
+    if errors:
+        print(status("Apply finished with errors.", "yellow"))
+        for error in errors:
+            print(f"- {error}")
+    else:
+        print(status("Done.", "green") + " Files were moved according to the approved plan.")
 
 
 def _category_label(category: str, subfolder: str | None) -> str:

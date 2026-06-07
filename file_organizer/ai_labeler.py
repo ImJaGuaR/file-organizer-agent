@@ -140,7 +140,7 @@ class AILabeler:
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0,
-            "max_tokens": 120,
+            "max_tokens": 240,
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
@@ -194,7 +194,7 @@ class AILabeler:
                 {"role": "user", "content": prompt},
             ],
             "format": "json",
-            "options": {"num_predict": 120, "temperature": 0},
+            "options": {"num_predict": 240, "temperature": 0},
         }
         try:
             data = _post_json(
@@ -297,18 +297,17 @@ def _label_schema(allow_custom_folders: bool) -> dict[str, object]:
 
 
 def _parse_response_text_with_options(
-    output_text: str | None,
+    output_text: object,
     fallback: Classification,
     source: str,
     allow_custom_folders: bool,
 ) -> Classification:
+    output_text = _coerce_response_text(output_text)
     if not output_text:
         return _fallback_after_ai(fallback, "AI returned no text; used rule classification.")
     output_text = _strip_markdown_fence(output_text)
-    output_text = _extract_json_object(output_text)
-    try:
-        data = json.loads(output_text)
-    except json.JSONDecodeError:
+    data = _loads_label_json(output_text)
+    if not isinstance(data, dict):
         return _fallback_after_ai(fallback, "AI returned invalid JSON; used rule classification.")
     category = _sanitize_folder_part(str(data.get("category", "")))
     if category not in ALLOWED_CATEGORIES and not allow_custom_folders:
@@ -318,7 +317,10 @@ def _parse_response_text_with_options(
     subfolder = data.get("subfolder")
     if subfolder is not None:
         subfolder = _sanitize_folder_path(str(subfolder)) or None
-    confidence = float(data.get("confidence", fallback.confidence))
+    try:
+        confidence = float(data.get("confidence", fallback.confidence))
+    except (TypeError, ValueError):
+        confidence = fallback.confidence
     return Classification(
         category=category,
         subfolder=subfolder,
@@ -330,7 +332,7 @@ def _parse_response_text_with_options(
 
 
 def _parse_response_text(
-    output_text: str | None,
+    output_text: object,
     fallback: Classification,
     source: str,
     allow_custom_folders: bool,
@@ -352,6 +354,49 @@ def _clean_ai_text(text: str, max_words: int) -> str:
     if len(words) > max_words:
         text = " ".join(words[:max_words]).rstrip(".,;:") + "."
     return text[:220]
+
+
+def _coerce_response_text(output_text: object) -> str:
+    if output_text is None:
+        return ""
+    if isinstance(output_text, str):
+        return output_text
+    if isinstance(output_text, list):
+        parts: list[str] = []
+        for item in output_text:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text") or item.get("content")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "".join(parts)
+    if isinstance(output_text, dict):
+        text = output_text.get("text") or output_text.get("content")
+        if isinstance(text, str):
+            return text
+        return json.dumps(output_text)
+    return str(output_text)
+
+
+def _loads_label_json(output_text: str) -> object:
+    candidates = [output_text, _extract_json_object(output_text)]
+    stripped = output_text.strip()
+    if stripped.startswith('"') and stripped.endswith('"'):
+        candidates.append(stripped[1:-1].replace('\\"', '"'))
+
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, str):
+            try:
+                return json.loads(_extract_json_object(_strip_markdown_fence(data)))
+            except json.JSONDecodeError:
+                continue
+        return data
+    return None
 
 
 def _sanitize_folder_part(value: str) -> str:

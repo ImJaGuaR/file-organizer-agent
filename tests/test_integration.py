@@ -1,4 +1,6 @@
 from pathlib import Path
+import io
+import sys
 
 from file_organizer.cli import main
 
@@ -23,3 +25,48 @@ def test_apply_moves_files(tmp_path: Path) -> None:
     assert exit_code == 0
     assert not source.exists()
     assert (target / "Organized" / "Documents" / "Text" / "notes.txt").exists()
+
+
+class TtyInput(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+def test_interactive_preview_can_apply_same_plan(tmp_path: Path, capsys) -> None:
+    target = tmp_path / "messy"
+    target.mkdir()
+    source = target / "notes.txt"
+    source.write_text("plain notes", encoding="utf-8")
+    old_stdin = sys.stdin
+    sys.stdin = TtyInput("show the plan\nAPPLY\n")
+    try:
+        exit_code = main(["--interactive", str(target), "--no-report"])
+    finally:
+        sys.stdin = old_stdin
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Type APPLY" in output
+    assert "Intelligence" not in output
+    assert "Decision style" not in output
+    assert not source.exists()
+    assert (target / "Organized" / "Documents" / "Text" / "notes.txt").exists()
+
+
+def test_interactive_preview_enter_leaves_files(tmp_path: Path, capsys) -> None:
+    target = tmp_path / "messy"
+    target.mkdir()
+    source = target / "notes.txt"
+    source.write_text("plain notes", encoding="utf-8")
+    old_stdin = sys.stdin
+    sys.stdin = TtyInput("show the plan\n\n")
+    try:
+        exit_code = main(["--interactive", str(target), "--no-report"])
+    finally:
+        sys.stdin = old_stdin
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Type APPLY" in output
+    assert "Okay, no files were moved." in output
+    assert source.exists()

@@ -13,7 +13,7 @@ from .memory import OrganizerMemory
 from .models import Classification, OrganizationReport
 from .mover import ensure_output_folders, execute_plan
 from .planner import build_move_plan
-from .reporter import print_plan, write_reports
+from .reporter import print_apply_result, print_plan, write_reports
 from .scanner import scan_folder
 
 
@@ -208,8 +208,9 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     actions = build_move_plan(signals, classifications, output_folder)
+    interactive_apply_prompt = bool(getattr(args, "interactive_apply_prompt", False))
     apply_changes = args.apply
-    if not apply_changes and args.auto_apply_min_confidence is not None:
+    if not apply_changes and args.auto_apply_min_confidence is not None and not interactive_apply_prompt:
         apply_changes = _can_auto_apply(actions, args.auto_apply_min_confidence)
         if apply_changes:
             print(f"Auto-apply enabled: all planned moves met confidence >= {args.auto_apply_min_confidence:.2f}.")
@@ -221,6 +222,22 @@ def main(argv: list[str] | None = None) -> int:
     if apply_changes:
         ensure_output_folders(output_folder)
     errors = execute_plan(actions, apply=apply_changes)
+    print_plan(
+        actions,
+        dry_run=not apply_changes,
+        interactive_apply_prompt=interactive_apply_prompt and not apply_changes,
+    )
+
+    if interactive_apply_prompt and not apply_changes:
+        answer = input("\nType APPLY to move files, or press Enter to leave preview: ").strip()
+        if answer == "APPLY":
+            ensure_output_folders(output_folder)
+            errors = execute_plan(actions, apply=True)
+            apply_changes = True
+            print_apply_result(errors)
+        else:
+            print("Okay, no files were moved.")
+
     report = OrganizationReport(
         target_folder=target_folder,
         output_folder=output_folder,
@@ -238,7 +255,6 @@ def main(argv: list[str] | None = None) -> int:
             "recursive": args.recursive,
         },
     )
-    print_plan(actions, dry_run=not apply_changes)
 
     if not args.no_report:
         json_path, md_path = write_reports(report)
