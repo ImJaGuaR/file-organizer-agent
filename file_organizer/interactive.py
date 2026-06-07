@@ -119,8 +119,10 @@ def _resolve_output(text: str) -> Path | None:
         lower,
         [
             "to the user folder",
+            "to user",
             "to user folder",
             "into the user folder",
+            "into user",
             "inside the user folder",
             "under the user folder",
             "under my user",
@@ -140,7 +142,7 @@ def _resolve_output(text: str) -> Path | None:
         return home / "Desktop"
     if _has_any(lower, ["to documents", "documents folder"]):
         return home / "Documents"
-    if _has_any(lower, ["to downloads", "into downloads", "to download", "into download", "downloads folder", "download folder"]):
+    if _has_any(lower, ["to downloads", "into downloads", "to download", "into download"]):
         return home / "Downloads"
     return None
 

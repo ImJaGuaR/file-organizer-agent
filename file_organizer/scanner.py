@@ -16,7 +16,7 @@ def scan_folder(
 ) -> list[FileSignal]:
     target_folder = target_folder.expanduser().resolve()
     output_folder = output_folder.expanduser().resolve()
-    exclude_output_folder = _is_inside(output_folder, target_folder)
+    exclude_output_folder = output_folder != target_folder and _is_inside(output_folder, target_folder)
     pattern = "**/*" if recursive else "*"
     signals: list[FileSignal] = []
 

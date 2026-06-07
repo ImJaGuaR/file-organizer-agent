@@ -14,6 +14,17 @@ def test_scans_target_when_output_is_parent_folder(tmp_path: Path) -> None:
     assert [signal.name for signal in signals] == ["notes.txt"]
 
 
+def test_scans_target_when_output_equals_target(tmp_path: Path) -> None:
+    target = tmp_path / "Downloads"
+    target.mkdir()
+    source = target / "notes.txt"
+    source.write_text("plain notes", encoding="utf-8")
+
+    signals = scan_folder(target, target)
+
+    assert [signal.name for signal in signals] == ["notes.txt"]
+
+
 def test_skips_output_folder_when_output_is_inside_target(tmp_path: Path) -> None:
     target = tmp_path / "Downloads"
     output = target / "Organized"

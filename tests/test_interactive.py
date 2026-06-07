@@ -17,6 +17,7 @@ def test_sample_phrase_uses_sample_folder() -> None:
 
 def test_user_folder_phrase_sets_home_output() -> None:
     assert _resolve_output("move all download folder content to the user folder") == Path.home()
+    assert _resolve_output("organize download folder to user") == Path.home()
 
 
 def test_home_folder_phrase_sets_home_output() -> None:
