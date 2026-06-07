@@ -15,14 +15,12 @@ def test_sample_phrase_uses_sample_folder() -> None:
     assert _resolve_target("organize the sample folder with AI labels") == Path("sample_messy_folder")
 
 
-def test_user_folder_phrase_sets_home_organized_output() -> None:
-    assert _resolve_output("move all download folder content to the user folder") == (
-        Path.home() / "Organized Files"
-    )
+def test_user_folder_phrase_sets_home_output() -> None:
+    assert _resolve_output("move all download folder content to the user folder") == Path.home()
 
 
-def test_home_folder_phrase_sets_home_organized_output() -> None:
-    assert _resolve_output("organize Downloads under my home folder") == Path.home() / "Organized Files"
+def test_home_folder_phrase_sets_home_output() -> None:
+    assert _resolve_output("organize Downloads under my home folder") == Path.home()
 
 
 def test_explicit_output_path_is_used() -> None:

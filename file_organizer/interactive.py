@@ -20,7 +20,7 @@ def configure_from_prompt(args: Namespace) -> bool:
         return False
 
     args.interactive_apply_prompt = True
-    target = _resolve_target(request) or (Path(args.target).expanduser() if args.target else None)
+    target = Path(args.target).expanduser() if args.target else _resolve_target(request)
     while target is None:
         answer = input("Which folder should I organize? ").strip()
         target = _resolve_target(answer) or Path(answer).expanduser()
@@ -118,12 +118,12 @@ def _resolve_output(text: str) -> Path | None:
             "my home folder",
         ],
     ):
-        return home / "Organized Files"
+        return home
 
     if _has_any(lower, ["to desktop", "onto desktop", "desktop folder"]):
-        return home / "Desktop" / "Organized Files"
+        return home / "Desktop"
     if _has_any(lower, ["to documents", "documents folder"]):
-        return home / "Documents" / "Organized Files"
+        return home / "Documents"
     return None
 
 

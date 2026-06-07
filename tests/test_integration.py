@@ -27,6 +27,20 @@ def test_apply_moves_files(tmp_path: Path) -> None:
     assert (target / "Organized" / "Documents" / "Text" / "notes.txt").exists()
 
 
+def test_apply_creates_only_needed_output_folders(tmp_path: Path) -> None:
+    target = tmp_path / "messy"
+    output = tmp_path / "organized-output"
+    target.mkdir()
+    source = target / "notes.txt"
+    source.write_text("plain notes", encoding="utf-8")
+    exit_code = main([str(target), "--output", str(output), "--apply", "--no-report"])
+
+    assert exit_code == 0
+    assert (output / "Documents" / "Text" / "notes.txt").exists()
+    assert not (output / "Images").exists()
+    assert not (output / "Research").exists()
+
+
 class TtyInput(io.StringIO):
     def isatty(self) -> bool:
         return True
@@ -69,4 +83,24 @@ def test_interactive_preview_enter_leaves_files(tmp_path: Path, capsys) -> None:
     assert exit_code == 0
     assert "Type APPLY" in output
     assert "Okay, no files were moved." in output
+    assert source.exists()
+
+
+def test_interactive_keeps_explicit_target_when_prompt_mentions_downloads(tmp_path: Path, capsys) -> None:
+    target = tmp_path / "Downloads"
+    target.mkdir()
+    source = target / "notes.txt"
+    source.write_text("plain notes", encoding="utf-8")
+    old_stdin = sys.stdin
+    sys.stdin = TtyInput("move all download folder content to the user folder\n\n")
+    try:
+        exit_code = main(["--interactive", str(target), "--no-report"])
+    finally:
+        sys.stdin = old_stdin
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert f"Target          {target}" in output
+    assert f"Output          {Path.home()}" in output
+    assert "inside target folder: Organized" not in output
     assert source.exists()

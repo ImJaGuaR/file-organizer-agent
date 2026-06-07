@@ -11,7 +11,7 @@ from .config import DEFAULT_OUTPUT_FOLDER, default_memory_path
 from .interactive import configure_from_prompt
 from .memory import OrganizerMemory
 from .models import Classification, OrganizationReport
-from .mover import ensure_output_folders, execute_plan
+from .mover import execute_plan
 from .planner import build_move_plan
 from .reporter import print_apply_result, print_plan, write_reports
 from .scanner import scan_folder
@@ -219,8 +219,6 @@ def main(argv: list[str] | None = None) -> int:
                 "Auto-apply skipped: at least one file was low-confidence, uncertain, "
                 "or classified for Review."
             )
-    if apply_changes:
-        ensure_output_folders(output_folder)
     errors = execute_plan(actions, apply=apply_changes)
     print_plan(
         actions,
@@ -231,7 +229,6 @@ def main(argv: list[str] | None = None) -> int:
     if interactive_apply_prompt and not apply_changes:
         answer = input("\nType APPLY to move files, or press Enter to leave preview: ").strip()
         if answer == "APPLY":
-            ensure_output_folders(output_folder)
             errors = execute_plan(actions, apply=True)
             apply_changes = True
             print_apply_result(errors)
