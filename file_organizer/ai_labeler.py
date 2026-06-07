@@ -23,6 +23,15 @@ ALLOWED_CATEGORIES = {
     "Review",
 } | PURPOSE_CATEGORIES
 
+JSON_FORMAT_INSTRUCTION = (
+    'Return exactly one complete JSON object and nothing else. No markdown, no comments, '
+    'no blank filler, no trailing text. Use this shape: '
+    '{"category":"Research","subfolder":"Documents","confidence":0.90,'
+    '"summary":"Machine learning literature review.",'
+    '"reason":"The file appears to be academic research."} '
+    'The confidence value must be a number between 0 and 1. Use null for subfolder when no subfolder fits.'
+)
+
 
 @dataclass
 class AILabeler:
@@ -135,7 +144,7 @@ class AILabeler:
             "messages": [
                 {
                     "role": "system",
-                    "content": "Return only valid JSON for the file label. No markdown.",
+                    "content": JSON_FORMAT_INSTRUCTION,
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -189,7 +198,7 @@ class AILabeler:
             "messages": [
                 {
                     "role": "system",
-                    "content": "Return only valid JSON for the file label. No markdown.",
+                    "content": JSON_FORMAT_INSTRUCTION,
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -239,6 +248,9 @@ def _build_prompt(
 You are the GenAI labeling module for a File Organizer Agent.
 
 Choose the best folder for the file. Return only JSON matching the schema.
+Example output:
+{{"category":"Research","subfolder":"Documents","confidence":0.90,"summary":"Machine learning literature review.","reason":"The file appears to be academic research."}}
+Do not stop after a key like "confidence"; always finish every value and the closing brace.
 
 Allowed top-level categories:
 Documents, Images, Code, Data, Archives, Audio, Videos, Research, Review,

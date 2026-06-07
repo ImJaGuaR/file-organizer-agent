@@ -1,7 +1,8 @@
+from pathlib import Path
 import json
 
-from file_organizer.ai_labeler import _parse_response_text
-from file_organizer.models import Classification
+from file_organizer.ai_labeler import JSON_FORMAT_INSTRUCTION, _build_prompt, _parse_response_text
+from file_organizer.models import Classification, FileSignal
 
 
 def fallback() -> Classification:
@@ -58,3 +59,27 @@ def test_parse_content_parts() -> None:
     assert result.category == "Data"
     assert result.subfolder == "CSV"
     assert result.confidence == 0.87
+
+
+def test_json_instruction_contains_complete_example() -> None:
+    assert '"confidence":0.90' in JSON_FORMAT_INSTRUCTION
+    assert "Return exactly one complete JSON object" in JSON_FORMAT_INSTRUCTION
+    assert "Use null for subfolder" in JSON_FORMAT_INSTRUCTION
+
+
+def test_prompt_reinforces_complete_json_example() -> None:
+    signal = FileSignal(
+        path=Path("/tmp/literature.docx"),
+        relative_path=Path("literature.docx"),
+        name="literature.docx",
+        extension=".docx",
+        size_bytes=100,
+        modified_at="2026-01-01T00:00:00",
+        created_at="2026-01-01T00:00:00",
+        mime_type=None,
+    )
+    prompt = _build_prompt(signal, fallback(), allow_custom_folders=True)
+
+    assert '"category":"Research"' in prompt
+    assert '"confidence":0.90' in prompt
+    assert "Do not stop after a key like \"confidence\"" in prompt
