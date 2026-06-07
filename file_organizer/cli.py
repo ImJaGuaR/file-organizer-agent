@@ -68,6 +68,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum number of files to send to AI in one run. Useful for slow local models.",
     )
     parser.add_argument(
+        "--ai-scope",
+        choices=["smart", "all"],
+        help="Choose which files AI labels. smart uses AI for content-heavy files; all sends every file.",
+    )
+    parser.add_argument(
+        "--ai-prefer",
+        action="store_true",
+        help="Prefer parsed AI labels over rule labels. Good for demonstrating a more AI-heavy agent.",
+    )
+    parser.add_argument(
         "--env-file",
         default=".env",
         help="Optional .env file to load before reading API settings.",
@@ -109,6 +119,7 @@ def main(argv: list[str] | None = None) -> int:
             provider=args.ai_provider,
             base_url=args.base_url,
             timeout_seconds=args.ai_timeout,
+            scope=args.ai_scope,
         )
         print("AI authentication status")
         print(f"- provider: {ai_labeler.provider}")
@@ -155,6 +166,7 @@ def main(argv: list[str] | None = None) -> int:
         provider=args.ai_provider,
         base_url=args.base_url,
         timeout_seconds=args.ai_timeout,
+        scope=args.ai_scope,
     )
     classifications: dict[Path, Classification] = {}
     ai_calls_remaining = args.ai_max_files
@@ -170,6 +182,7 @@ def main(argv: list[str] | None = None) -> int:
         classifications[signal.path] = choose_final_classification(
             rule_classification,
             ai_classification,
+            prefer_ai=args.ai_prefer,
         )
 
     actions = build_move_plan(signals, classifications, output_folder)
@@ -184,6 +197,8 @@ def main(argv: list[str] | None = None) -> int:
             "ai_requested": args.use_ai,
             "ai_provider": ai_labeler.provider if args.use_ai else None,
             "ai_model": ai_labeler.model if args.use_ai else None,
+            "ai_scope": ai_labeler.scope if args.use_ai else None,
+            "ai_prefer": args.ai_prefer if args.use_ai else None,
             "recursive": args.recursive,
         },
     )

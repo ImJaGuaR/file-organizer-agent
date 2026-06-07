@@ -74,9 +74,12 @@ def classify_with_rules(signal: FileSignal, memory: OrganizerMemory | None = Non
 def choose_final_classification(
     rule_classification: Classification,
     ai_classification: Classification | None,
+    prefer_ai: bool = False,
 ) -> Classification:
     if not ai_classification:
         return rule_classification
+    if prefer_ai and ai_classification.source.startswith("ai-"):
+        return ai_classification
     if ai_classification.confidence >= 0.76:
         return ai_classification
     if rule_classification.category == "Review" and ai_classification.confidence >= 0.55:

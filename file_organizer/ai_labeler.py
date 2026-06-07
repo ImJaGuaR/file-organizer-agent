@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from http.client import RemoteDisconnected
 from urllib.error import HTTPError, URLError
@@ -30,6 +31,7 @@ class AILabeler:
     provider: str = "openai"
     base_url: str | None = None
     timeout_seconds: int = 30
+    scope: str = "smart"
 
     @classmethod
     def from_environment(
@@ -39,6 +41,7 @@ class AILabeler:
         provider: str | None = None,
         base_url: str | None = None,
         timeout_seconds: int | None = None,
+        scope: str | None = None,
     ) -> "AILabeler":
         selected_provider = (provider or os.getenv("AI_PROVIDER") or "openai").lower()
         selected_model = model or _default_model_for_provider(selected_provider)
@@ -50,12 +53,13 @@ class AILabeler:
             provider=selected_provider,
             base_url=selected_base_url,
             timeout_seconds=selected_timeout,
+            scope=scope or os.getenv("AI_SCOPE", "smart"),
         )
 
     def classify(self, signal: FileSignal, rule_classification: Classification) -> Classification | None:
         if not self.enabled:
             return None
-        if not _worth_ai_call(signal, rule_classification):
+        if not _worth_ai_call(signal, rule_classification, self.scope):
             return None
 
         prompt = _build_prompt(signal, rule_classification)
@@ -143,7 +147,7 @@ class AILabeler:
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0,
-            "max_tokens": 180,
+            "max_tokens": 120,
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
@@ -192,7 +196,7 @@ class AILabeler:
                 {"role": "user", "content": prompt},
             ],
             "format": "json",
-            "options": {"num_predict": 400},
+            "options": {"num_predict": 120, "temperature": 0},
         }
         try:
             data = _post_json(
@@ -208,14 +212,16 @@ class AILabeler:
         return _parse_response_text(output_text, rule_classification, source="ai-ollama")
 
 
-def _worth_ai_call(signal: FileSignal, rule_classification: Classification) -> bool:
+def _worth_ai_call(signal: FileSignal, rule_classification: Classification, scope: str) -> bool:
+    if scope == "all":
+        return True
     if signal.preview:
         return True
     return rule_classification.category in {"Research", "Review", "Documents", "Code", "Data"}
 
 
 def _build_prompt(signal: FileSignal, rule_classification: Classification) -> str:
-    preview = signal.preview[:1800] if signal.preview else "(No content preview available.)"
+    preview = signal.preview[:900] if signal.preview else "(No content preview available.)"
     return f"""
 You are the GenAI labeling module for a File Organizer Agent.
 
@@ -226,6 +232,11 @@ Documents, Images, Code, Data, Archives, Audio, Videos, Research, Review.
 
 Use Review when uncertain. Prefer Research for academic papers, assignments,
 milestones, literature reviews, citations, experiments, OS/coursework, or thesis work.
+
+Write clean, short English:
+- summary: max 12 words, no repeated words.
+- reason: max 18 words, no repeated words.
+- subfolder: short folder name or null.
 
 File metadata:
 - name: {signal.name}
@@ -258,15 +269,16 @@ def _label_schema() -> dict[str, object]:
 
 def _parse_response_text(output_text: str | None, fallback: Classification, source: str) -> Classification:
     if not output_text:
-        return fallback
+        return _fallback_after_ai(fallback, "AI returned no text; used rule classification.")
     output_text = _strip_markdown_fence(output_text)
+    output_text = _extract_json_object(output_text)
     try:
         data = json.loads(output_text)
     except json.JSONDecodeError:
-        return fallback
+        return _fallback_after_ai(fallback, "AI returned invalid JSON; used rule classification.")
     category = data.get("category")
     if category not in ALLOWED_CATEGORIES:
-        return fallback
+        return _fallback_after_ai(fallback, "AI returned an unsupported category; used rule classification.")
     subfolder = data.get("subfolder")
     if subfolder is not None:
         subfolder = str(subfolder).strip().strip("/\\") or None
@@ -275,10 +287,21 @@ def _parse_response_text(output_text: str | None, fallback: Classification, sour
         category=category,
         subfolder=subfolder,
         confidence=max(0.0, min(1.0, confidence)),
-        reason=str(data.get("reason", "AI suggested this category."))[:300],
+        reason=_clean_ai_text(str(data.get("reason", "AI suggested this category.")), max_words=24),
         source=source,
-        summary=str(data.get("summary", ""))[:240],
+        summary=_clean_ai_text(str(data.get("summary", "")), max_words=16),
     )
+
+
+def _clean_ai_text(text: str, max_words: int) -> str:
+    text = _strip_markdown_fence(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\b(\w+)(?:\s+\1\b){2,}", r"\1", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(\w{4,})(?:\1){1,}\b", r"\1", text, flags=re.IGNORECASE)
+    words = text.split()
+    if len(words) > max_words:
+        text = " ".join(words[:max_words]).rstrip(".,;:") + "."
+    return text[:220]
 
 
 def _default_model_for_provider(provider: str) -> str:
@@ -332,6 +355,17 @@ def _strip_markdown_fence(text: str) -> str:
     return stripped
 
 
+def _extract_json_object(text: str) -> str:
+    stripped = text.strip()
+    if stripped.startswith("{") and stripped.endswith("}"):
+        return stripped
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return stripped[start : end + 1]
+    return stripped
+
+
 def _unavailable(fallback: Classification, reason: str) -> Classification:
     return Classification(
         category=fallback.category,
@@ -350,5 +384,16 @@ def _error(fallback: Classification, reason: str) -> Classification:
         confidence=fallback.confidence,
         reason=f"AI request failed; used rule classification. Error: {reason}",
         source="ai-error",
+        summary=fallback.summary,
+    )
+
+
+def _fallback_after_ai(fallback: Classification, reason: str) -> Classification:
+    return Classification(
+        category=fallback.category,
+        subfolder=fallback.subfolder,
+        confidence=fallback.confidence,
+        reason=reason,
+        source="ai-fallback",
         summary=fallback.summary,
     )

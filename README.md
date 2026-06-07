@@ -86,6 +86,24 @@ Local models can be slower than cloud APIs. For a quick demo, ask AI to label on
 python -m file_organizer sample_messy_folder --use-ai --ai-provider openai-compatible --ai-max-files 1 --ai-timeout 20
 ```
 
+To make the project more AI-heavy, send every scanned file to AI:
+
+```bash
+python -m file_organizer sample_messy_folder --use-ai --ai-provider openai-compatible --ai-scope all --ai-timeout 30
+```
+
+For the clearest classroom demo, prefer AI labels whenever the model returns valid structured JSON:
+
+```bash
+python -m file_organizer sample_messy_folder --use-ai --ai-provider openai-compatible --ai-scope all --ai-prefer --ai-timeout 30
+```
+
+For slow local models, combine all-file AI with a limit while testing:
+
+```bash
+python -m file_organizer sample_messy_folder --use-ai --ai-provider openai-compatible --ai-scope all --ai-max-files 3 --ai-timeout 30
+```
+
 ### Option 3: Local Ollama
 
 This option uses a local model and does not need an API key:
