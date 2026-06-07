@@ -18,10 +18,15 @@ def configure_from_prompt(args: Namespace) -> bool:
     request = input("> ").strip()
     if not request:
         return False
+    configure_from_request(args, request)
+    return True
 
+
+def configure_from_request(args: Namespace, request: str) -> None:
     args.interactive_apply_prompt = True
     task = _resolve_task(request)
     args.task = task
+    args.followup_requests = _followup_requests(request, task)
     target = Path(args.target).expanduser() if args.target else _resolve_target(request, task=task)
     while target is None:
         answer = input("Which folder should I use? ").strip()
@@ -45,14 +50,22 @@ def configure_from_prompt(args: Namespace) -> bool:
     args.auto_apply_min_confidence = None
 
     _print_interactive_summary(args)
-    return True
 
 
 def _resolve_task(text: str) -> str:
     lower = text.lower()
+    if _has_any(lower, ["organize", "sort", "move"]) and not lower.strip().startswith(("delete", "remove", "clear", "empty")):
+        return "organize"
     if _has_any(lower, ["delete", "remove", "clear", "empty", "trash can", "trash bin"]):
         return "delete"
     return "organize"
+
+
+def _followup_requests(text: str, task: str) -> list[str]:
+    lower = text.lower()
+    if task == "organize" and _has_any(lower, ["delete", "remove", "clear", "empty", "trash can", "trash bin"]):
+        return ["delete trash in trash can"]
+    return []
 
 
 def _resolve_target(text: str, task: str = "organize") -> Path | None:

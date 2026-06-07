@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from file_organizer.interactive import _resolve_output, _resolve_target, _resolve_task
+from file_organizer.interactive import _followup_requests, _resolve_output, _resolve_target, _resolve_task
 
 
 def test_absolute_demo_path_stays_path() -> None:
@@ -34,3 +34,10 @@ def test_delete_words_set_delete_task() -> None:
 
 def test_organize_words_default_to_organize_task() -> None:
     assert _resolve_task("organize my Downloads") == "organize"
+
+
+def test_combined_organize_and_delete_starts_with_organize_then_queues_delete() -> None:
+    request = "organize my Downloads and also delete trash in trash can"
+    task = _resolve_task(request)
+    assert task == "organize"
+    assert _followup_requests(request, task) == ["delete trash in trash can"]

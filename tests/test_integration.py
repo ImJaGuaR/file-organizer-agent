@@ -247,3 +247,35 @@ def test_interactive_fix_all_output_correction_retargets_plan(tmp_path: Path, ca
     assert f"Okay, I updated the output folder to {Path.home()}" in output
     assert "to   ~/Documents/Text/notes.txt" in output
     assert source.exists()
+
+
+def test_interactive_session_accepts_multiple_requests(tmp_path: Path, capsys, monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    messy = tmp_path / "messy"
+    trash = tmp_path / "trash"
+    messy.mkdir()
+    trash.mkdir()
+    messy_file = messy / "notes.txt"
+    trash_file = trash / "old.txt"
+    messy_file.write_text("plain notes", encoding="utf-8")
+    trash_file.write_text("old", encoding="utf-8")
+    old_stdin = sys.stdin
+    sys.stdin = TtyInput(
+        f"organize folder {messy}\n\n"
+        f"delete folder {trash}\n\n"
+        "\n"
+    )
+    try:
+        exit_code = main(["--env-file", str(tmp_path / "missing.env"), "--no-report"])
+    finally:
+        sys.stdin = old_stdin
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Task            Organize" in output
+    assert "Task            Delete" in output
+    assert "01. MOVE" in output
+    assert "01. DELETE" in output
+    assert messy_file.exists()
+    assert trash_file.exists()

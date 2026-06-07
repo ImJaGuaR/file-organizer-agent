@@ -260,6 +260,7 @@ The agent will:
 - choose the output folder from the prompt
 - create purpose-based folders only when needed
 - print a preview plan first
+- stay open for another request after the plan finishes
 
 After the plan, type `APPLY` and press Enter to move the files in the same run. Press Enter without typing `APPLY` to leave the preview unchanged.
 
@@ -281,6 +282,16 @@ delete folder /path/to/folder
 ```
 
 The app lists the files or folders that would be deleted. Nothing is deleted unless you type `APPLY`.
+
+You can keep chatting in the same terminal session:
+
+```text
+organize my Downloads and move into the user folder
+delete trash in the trash can
+organize my Desktop
+```
+
+If a prompt mixes organization and deletion, the agent starts with the organization plan and queues the delete task next.
 
 You can also force the prompt mode:
 

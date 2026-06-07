@@ -10,7 +10,7 @@ from .ai_labeler import AILabeler
 from .auth import load_dotenv, masked
 from .classifier import choose_final_classification, classify_with_rules
 from .config import DEFAULT_OUTPUT_FOLDER, default_memory_path
-from .interactive import configure_from_prompt, _resolve_output
+from .interactive import configure_from_prompt, configure_from_request, _resolve_output
 from .memory import OrganizerMemory
 from .models import Classification, OrganizationReport
 from .mover import execute_plan
@@ -163,13 +163,49 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Saved memory rule: {extension} -> {folder}")
         return 0
 
-    if args.interactive or not args.target:
+    interactive_session = args.interactive or not args.target
+    if interactive_session:
         configured = configure_from_prompt(args)
         if not configured and not args.target:
             if sys.stdin.isatty():
                 parser.error("target folder is required")
             parser.error("target folder is required in non-interactive mode")
 
+        exit_code = _run_configured(args, memory, parser)
+        followups = list(getattr(args, "followup_requests", []))
+        while followups or sys.stdin.isatty():
+            if followups:
+                next_request = followups.pop(0)
+                print(f"\nNext queued task: {next_request}")
+            else:
+                next_request = input("\nTell me another task, or press Enter to quit: ").strip()
+                if not next_request:
+                    break
+            next_args = parser.parse_args([])
+            _copy_session_options(args, next_args)
+            configure_from_request(next_args, next_request)
+            exit_code = _run_configured(next_args, memory, parser)
+            followups.extend(getattr(next_args, "followup_requests", []))
+        return exit_code
+
+    return _run_configured(args, memory, parser)
+
+
+def _copy_session_options(source: argparse.Namespace, target: argparse.Namespace) -> None:
+    for name in [
+        "env_file",
+        "memory_file",
+        "no_report",
+        "ai_provider",
+        "model",
+        "base_url",
+        "ai_timeout",
+        "ai_max_files",
+    ]:
+        setattr(target, name, getattr(source, name))
+
+
+def _run_configured(args: argparse.Namespace, memory: OrganizerMemory, parser: argparse.ArgumentParser) -> int:
     target_folder = Path(args.target).expanduser().resolve()
     if not target_folder.exists() or not target_folder.is_dir():
         parser.error(f"target folder does not exist or is not a directory: {target_folder}")
@@ -308,7 +344,14 @@ def _can_auto_apply(actions: list[object], min_confidence: float) -> bool:
 
 
 def _delete_targets(target_folder: Path) -> list[Path]:
-    return sorted(target_folder.iterdir())
+    try:
+        return sorted(target_folder.iterdir())
+    except PermissionError:
+        print(f"Cannot access {target_folder}. On macOS, give Terminal Full Disk Access to manage Trash.")
+        return []
+    except OSError as exc:
+        print(f"Cannot read {target_folder}: {exc}")
+        return []
 
 
 def _resolve_output_correction(answer: str) -> Path | None:
