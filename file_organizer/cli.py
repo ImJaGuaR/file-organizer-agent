@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from .ai_labeler import AILabeler
 from .auth import load_dotenv, masked
 from .classifier import choose_final_classification, classify_with_rules
 from .config import DEFAULT_OUTPUT_FOLDER, default_memory_path
+from .interactive import configure_from_prompt
 from .memory import OrganizerMemory
 from .models import Classification, OrganizationReport
 from .mover import ensure_output_folders, execute_plan
@@ -113,6 +115,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Do not write report files.",
     )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Ask what to do in natural language before running.",
+    )
     return parser
 
 
@@ -154,8 +161,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Saved memory rule: {extension} -> {folder}")
         return 0
 
-    if not args.target:
-        parser.error("target folder is required unless --learn-extension is used")
+    if args.interactive or not args.target:
+        configured = configure_from_prompt(args)
+        if not configured and not args.target:
+            if sys.stdin.isatty():
+                parser.error("target folder is required")
+            parser.error("target folder is required in non-interactive mode")
 
     target_folder = Path(args.target).expanduser().resolve()
     if not target_folder.exists() or not target_folder.is_dir():
@@ -163,7 +174,6 @@ def main(argv: list[str] | None = None) -> int:
 
     output_folder = Path(args.output).expanduser().resolve() if args.output else target_folder / DEFAULT_OUTPUT_FOLDER
     output_folder = output_folder.resolve()
-    ensure_output_folders(output_folder)
 
     signals = scan_folder(
         target_folder=target_folder,
@@ -208,6 +218,8 @@ def main(argv: list[str] | None = None) -> int:
                 "Auto-apply skipped: at least one file was low-confidence, uncertain, "
                 "or classified for Review."
             )
+    if apply_changes:
+        ensure_output_folders(output_folder)
     errors = execute_plan(actions, apply=apply_changes)
     report = OrganizationReport(
         target_folder=target_folder,

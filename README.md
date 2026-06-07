@@ -168,6 +168,28 @@ Actually organize the sample folder:
 python -m file_organizer sample_messy_folder --apply
 ```
 
+## Interactive Agent Mode
+
+Run without a target to describe the task in plain English:
+
+```bash
+python -m file_organizer
+```
+
+Example prompt:
+
+```text
+organize my Downloads with LM Studio AI, create folders if needed, and move the files under my home folder
+```
+
+The agent will interpret the request, show the target, output folder, AI settings, and whether it plans to move files. If the request would move files, it asks for confirmation first.
+
+You can also force the prompt mode:
+
+```bash
+python -m file_organizer --interactive
+```
+
 ## Real Folder Usage
 
 Always preview first:
