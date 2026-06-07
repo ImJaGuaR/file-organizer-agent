@@ -1,24 +1,52 @@
 # File Organizer Agent
 
-A simple AI-assisted agent that observes a messy folder, reasons about file categories, safely plans moves, acts only when approved, and writes a report.
+A safe AI-first folder organizer that observes a messy folder, asks an AI model for purpose-based labels, validates the response, previews the move plan, and moves files only after approval.
 
-The agent works without an API key using local rules. If you provide AI credentials, it can also ask a model to improve labels for text-like files such as assignments, notes, code, CSV files, and research documents.
+Interactive mode is designed as an AI tool: it tries AI labels first for all files, then uses local rules only when the AI provider is unavailable, errors, or returns invalid JSON.
 
 ## Features
 
 - Scans a selected folder and reads file metadata.
 - Classifies documents, images, audio, videos, code, archives, spreadsheets, data, research, and unknown files.
 - Reads safe short previews from text files, code files, CSV/JSON files, and DOCX files.
-- Optionally uses OpenAI, OpenAI-compatible APIs, or local Ollama for structured AI labels.
+- Uses OpenAI, OpenAI-compatible APIs, or local Ollama for structured AI labels.
+- Falls back to local rules when AI fails, so the organizer still produces a safe plan.
 - Organizes by purpose first when possible, then file type. For example, a voice memo about a project idea goes to `Ideas/Audio`, not only `Audio`.
 - Creates a safe move plan before changing anything.
-- Uses dry-run mode by default.
+- In interactive mode, type `APPLY` after previewing the plan to move files.
 - Avoids overwriting files by renaming duplicates.
+- Creates only the destination folders needed by the current plan.
 - Skips risky files and places uncertain files in `Review`.
 - Writes JSON and Markdown reports.
 - Supports simple memory rules for future corrections.
 
-## Setup
+## Supported Operating Systems
+
+The project is pure Python and supports:
+
+- macOS
+- Linux
+- Windows 10/11
+
+Python 3.10 or newer is recommended.
+
+## Installation Guide
+
+First clone the repository:
+
+```bash
+git clone https://github.com/ImJaGuaR/file-organizer-agent.git
+cd file-organizer-agent
+```
+
+If you already cloned it, update it with:
+
+```bash
+cd file-organizer-agent
+git pull origin main
+```
+
+### macOS
 
 ```bash
 python3 -m venv .venv
@@ -26,115 +54,147 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-For running the tests:
+Run the app:
 
 ```bash
-pip install -r requirements-dev.txt
-pytest
+python -m file_organizer
 ```
 
-AI is optional. The safest setup is to copy the example environment file and add your own key locally:
+### Linux
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Run the app:
+
+```bash
+python -m file_organizer
+```
+
+### Windows PowerShell
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+Run the app:
+
+```powershell
+python -m file_organizer
+```
+
+If PowerShell blocks activation, run:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+Then activate the virtual environment again.
+
+### Windows Command Prompt
+
+```bat
+py -m venv .venv
+.venv\Scripts\activate.bat
+pip install -r requirements.txt
+python -m file_organizer
+```
+
+## AI Provider Setup
+
+Interactive mode tries AI first. Configure one AI provider before running a real demo. If no AI provider is configured, the app still works, but it will show that AI was unavailable and use local rules as a fallback.
+
+Create a local `.env` file in the project root. Do not commit `.env`; it is ignored by Git.
+
+macOS/Linux:
 
 ```bash
 cp .env.example .env
 ```
 
-Do not commit `.env`; it is ignored by Git.
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Then edit `.env` and fill in one provider.
 
 ### Option 1: OpenAI API
 
+macOS/Linux:
+
 ```bash
-export OPENAI_API_KEY="your_api_key_here"
-export AI_PROVIDER="openai"
+cat > .env <<'EOF'
+AI_PROVIDER=openai
+OPENAI_API_KEY=your_api_key_here
+EOF
 ```
 
-The default model is `gpt-5.4-mini`, chosen as a lower-cost model suitable for structured labeling. You can override it:
+Windows PowerShell:
+
+```powershell
+@"
+AI_PROVIDER=openai
+OPENAI_API_KEY=your_api_key_here
+"@ | Set-Content .env
+```
+
+You can override the model:
 
 ```bash
-export OPENAI_MODEL="gpt-5.4-mini"
+OPENAI_MODEL=your_model_name
 ```
 
 ### Option 2: Any OpenAI-Compatible API
 
 Use this for providers that support a `/v1/chat/completions` style endpoint.
 
-```bash
-export AI_PROVIDER="openai-compatible"
-export OPENAI_COMPATIBLE_API_KEY="your_provider_key"
-export OPENAI_COMPATIBLE_BASE_URL="https://api.your-provider.com/v1"
-export OPENAI_COMPATIBLE_MODEL="provider/model-name"
-```
-
-Then run:
+macOS/Linux `.env` example:
 
 ```bash
-python -m file_organizer sample_messy_folder --use-ai --ai-provider openai-compatible
+cat > .env <<'EOF'
+AI_PROVIDER=openai-compatible
+OPENAI_COMPATIBLE_API_KEY=your_provider_key
+OPENAI_COMPATIBLE_BASE_URL=https://api.your-provider.com/v1
+OPENAI_COMPATIBLE_MODEL=provider/model-name
+AI_TIMEOUT_SECONDS=30
+EOF
 ```
 
 For LM Studio, use the base URL and model name shown in the Developer tab. Example:
 
-```bash
+```text
 AI_PROVIDER=openai-compatible
 OPENAI_COMPATIBLE_BASE_URL=http://localhost:1234/v1
 OPENAI_COMPATIBLE_API_KEY=lm-studio
 OPENAI_COMPATIBLE_MODEL=google/gemma-4-26b-a4b
-AI_TIMEOUT_SECONDS=30
+AI_TIMEOUT_SECONDS=60
 ```
 
-Local models can be slower than cloud APIs. For a quick demo, ask AI to label only the first file and let rules handle the rest:
+Local models can be slower than cloud APIs. For direct CLI testing, you can limit AI calls:
 
 ```bash
-python -m file_organizer sample_messy_folder --use-ai --ai-provider openai-compatible --ai-max-files 1 --ai-timeout 20
+python -m file_organizer sample_messy_folder --use-ai --ai-provider openai-compatible --ai-scope all --ai-prefer --ai-custom-folders --ai-max-files 5
 ```
 
-To make the project more AI-heavy, send every scanned file to AI:
-
-```bash
-python -m file_organizer sample_messy_folder --use-ai --ai-provider openai-compatible --ai-scope all --ai-timeout 30
-```
-
-For the clearest classroom demo, prefer AI labels whenever the model returns valid structured JSON:
-
-```bash
-python -m file_organizer sample_messy_folder --use-ai --ai-provider openai-compatible --ai-scope all --ai-prefer --ai-timeout 30
-```
-
-Allow the AI to create new sanitized folder categories when the built-in categories do not fit:
-
-```bash
-python -m file_organizer sample_messy_folder --use-ai --ai-provider openai-compatible --ai-scope all --ai-prefer --ai-custom-folders --ai-timeout 30
-```
-
-The planner creates missing folders automatically. AI folder names are sanitized before use, so unsafe path parts such as `..` are not allowed.
-
-For a more autonomous run, let the agent apply the plan only if every planned move is confident and no file is sent to `Review`:
-
-```bash
-python -m file_organizer sample_messy_folder --use-ai --ai-provider openai-compatible --ai-scope all --ai-prefer --ai-custom-folders --auto-apply-min-confidence 0.80 --ai-timeout 30
-```
-
-This is safer than blindly moving files because low-confidence files still stay in dry-run mode.
-
-For slow local models, combine all-file AI with a limit while testing:
-
-```bash
-python -m file_organizer sample_messy_folder --use-ai --ai-provider openai-compatible --ai-scope all --ai-max-files 3 --ai-timeout 30
-```
+The planner sanitizes AI folder names before use, so unsafe path parts such as `..` are not allowed.
 
 ### Option 3: Local Ollama
 
 This option uses a local model and does not need an API key:
 
 ```bash
-export AI_PROVIDER="ollama"
-export OLLAMA_BASE_URL="http://localhost:11434"
-export OLLAMA_MODEL="llama3.1"
-```
-
-Then run:
-
-```bash
-python -m file_organizer sample_messy_folder --use-ai --ai-provider ollama
+cat > .env <<'EOF'
+AI_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3.1
+EOF
 ```
 
 Check the current AI configuration:
@@ -147,26 +207,34 @@ python -m file_organizer --auth-status
 
 Create a fake messy folder:
 
+macOS/Linux:
+
 ```bash
 python scripts/create_sample_messy_folder.py
 ```
 
-Preview what the agent would do:
+Windows:
 
 ```bash
-python -m file_organizer sample_messy_folder
+python scripts/create_sample_messy_folder.py
 ```
 
-Preview with AI labeling:
+Start interactive mode:
 
 ```bash
-python -m file_organizer sample_messy_folder --use-ai
+python -m file_organizer
 ```
 
-Actually organize the sample folder:
+Example prompt:
 
-```bash
-python -m file_organizer sample_messy_folder --apply
+```text
+organize the sample folder and create folders if needed
+```
+
+The app prints a preview plan first. To apply it, type:
+
+```text
+APPLY
 ```
 
 ## Interactive Agent Mode
@@ -180,10 +248,17 @@ python -m file_organizer
 Example prompt:
 
 ```text
-organize the sample folder with AI labels, create folders if needed, and show the plan
+organize my Downloads and move into the user folder, do not create the Organized folder
 ```
 
-The agent will interpret the request, show the target, output folder, mode, and folder strategy, then print a preview plan first.
+The agent will:
+
+- use AI labels first
+- show the target folder
+- choose the output folder from the prompt
+- create purpose-based folders only when needed
+- print a preview plan first
+
 After the plan, type `APPLY` and press Enter to move the files in the same run. Press Enter without typing `APPLY` to leave the preview unchanged.
 
 You can also force the prompt mode:
@@ -194,16 +269,31 @@ python -m file_organizer --interactive
 
 ## Real Folder Usage
 
-Always preview first:
+Interactive mode is recommended:
 
 ```bash
-python -m file_organizer ~/Downloads
+python -m file_organizer
+```
+
+Useful prompts:
+
+```text
+organize my Downloads
+organize my Downloads and move into the user folder
+organize folder /path/to/folder and output /path/to/destination
+organize my Desktop and create folders if needed
+```
+
+If you use direct CLI mode, add AI flags explicitly:
+
+```bash
+python -m file_organizer ~/Downloads --use-ai --ai-scope all --ai-prefer --ai-custom-folders
 ```
 
 Then apply only when the plan looks correct:
 
 ```bash
-python -m file_organizer ~/Downloads --apply
+python -m file_organizer ~/Downloads --use-ai --ai-scope all --ai-prefer --ai-custom-folders --apply
 ```
 
 ## Memory Rules
@@ -218,7 +308,19 @@ Then future runs will use that saved rule.
 
 ## Output Structure
 
-By default, files are moved into an `Organized` folder inside the selected folder:
+By default, direct CLI mode moves files into an `Organized` folder inside the selected folder.
+
+Interactive mode can also move files directly into another destination. For example, if you ask to move Downloads into the user folder, it creates only the needed category folders directly under the user folder:
+
+```text
+/Users/you/Documents/Text/
+/Users/you/Research/
+/Users/you/Ideas/Text/
+```
+
+It does not create every possible category ahead of time.
+
+Typical category structure:
 
 ```text
 Organized/
@@ -260,7 +362,7 @@ Organized/
 
 ## Safety
 
-The agent never moves files unless you pass `--apply`. It also avoids overwriting by generating names like `file (1).pdf` when a destination already exists.
+The agent never moves files unless you pass `--apply` in direct CLI mode or type `APPLY` after an interactive preview. It also avoids overwriting by generating names like `file (1).pdf` when a destination already exists.
 
 ## AI Authentication Notes
 
@@ -274,4 +376,4 @@ The AI labeling module sends only file metadata and a short text preview, not th
 - summary
 - reason
 
-The agent then compares the AI label with the local rule label. High-confidence AI labels can improve the destination folder; low-confidence AI labels are ignored.
+Interactive mode prefers valid AI labels. If the AI provider is unavailable, errors, returns invalid JSON, or suggests an unsafe folder name, the agent falls back to local rules and explains that in the plan.
