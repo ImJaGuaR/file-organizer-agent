@@ -140,6 +140,8 @@ def _resolve_output(text: str) -> Path | None:
         return home / "Desktop"
     if _has_any(lower, ["to documents", "documents folder"]):
         return home / "Documents"
+    if _has_any(lower, ["to downloads", "into downloads", "to download", "into download", "downloads folder", "download folder"]):
+        return home / "Downloads"
     return None
 
 

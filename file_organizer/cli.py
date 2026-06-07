@@ -178,7 +178,10 @@ def main(argv: list[str] | None = None) -> int:
                 next_request = followups.pop(0)
                 print(f"\nNext queued task: {next_request}")
             else:
-                next_request = input("\nTell me another task, or press Enter to quit: ").strip()
+                try:
+                    next_request = input("\nTell me another task, or press Enter to quit: ").strip()
+                except EOFError:
+                    break
                 if not next_request:
                     break
             next_args = parser.parse_args([])
@@ -277,7 +280,13 @@ def _run_configured(args: argparse.Namespace, memory: OrganizerMemory, parser: a
 
     if interactive_apply_prompt and not apply_changes:
         while True:
-            answer = input("\nType APPLY to apply, FIX 2 Folder/Subfolder to correct, or Enter to leave preview: ").strip()
+            try:
+                answer = input(
+                    "\nSay APPLY, a correction like 'move all to Downloads', FIX 2 Folder/Subfolder, or Enter to quit: "
+                ).strip()
+            except EOFError:
+                print("Okay, no files were moved.")
+                break
             if answer == "APPLY":
                 errors = execute_plan(actions, apply=True)
                 apply_changes = True
@@ -296,7 +305,7 @@ def _run_configured(args: argparse.Namespace, memory: OrganizerMemory, parser: a
 
             corrected_actions = _apply_interactive_correction(answer, actions, output_folder, memory)
             if corrected_actions is None:
-                print("I did not understand that correction. Example: FIX 2 Coursework/Text")
+                print("I did not understand yet. Try: move all to Downloads, move all to user folder, or FIX 2 Coursework/Text")
                 continue
             actions = corrected_actions
             print_plan(actions, dry_run=True, interactive_apply_prompt=True)

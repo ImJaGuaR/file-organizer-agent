@@ -27,6 +27,11 @@ def test_explicit_output_path_is_used() -> None:
     assert _resolve_output("organize downloads output /tmp/sorted") == Path("/tmp/sorted")
 
 
+def test_download_output_phrase_sets_downloads_output() -> None:
+    assert _resolve_output("move all into download") == Path.home() / "Downloads"
+    assert _resolve_output("move all to Downloads") == Path.home() / "Downloads"
+
+
 def test_delete_words_set_delete_task() -> None:
     assert _resolve_task("delete trash in the trash can") == "delete"
     assert _resolve_task("empty trash can") == "delete"
