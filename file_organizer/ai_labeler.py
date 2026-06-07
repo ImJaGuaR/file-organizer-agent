@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from http.client import RemoteDisconnected
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -28,6 +29,7 @@ class AILabeler:
     enabled: bool = False
     provider: str = "openai"
     base_url: str | None = None
+    timeout_seconds: int = 30
 
     @classmethod
     def from_environment(
@@ -36,15 +38,18 @@ class AILabeler:
         enabled: bool = False,
         provider: str | None = None,
         base_url: str | None = None,
+        timeout_seconds: int | None = None,
     ) -> "AILabeler":
         selected_provider = (provider or os.getenv("AI_PROVIDER") or "openai").lower()
         selected_model = model or _default_model_for_provider(selected_provider)
         selected_base_url = base_url or _default_base_url_for_provider(selected_provider)
+        selected_timeout = timeout_seconds or int(os.getenv("AI_TIMEOUT_SECONDS", "30"))
         return cls(
             model=selected_model,
             enabled=enabled,
             provider=selected_provider,
             base_url=selected_base_url,
+            timeout_seconds=selected_timeout,
         )
 
     def classify(self, signal: FileSignal, rule_classification: Classification) -> Classification | None:
@@ -138,16 +143,38 @@ class AILabeler:
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0,
-            "response_format": {"type": "json_object"},
+            "max_tokens": 180,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "file_label",
+                    "schema": _label_schema(),
+                },
+            },
         }
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
         try:
-            data = _post_json(url, payload, headers)
+            try:
+                data = _post_json(url, payload, headers, timeout_seconds=self.timeout_seconds)
+            except HTTPError as exc:
+                if exc.code != 400:
+                    raise
+                fallback_payload = dict(payload)
+                fallback_payload.pop("response_format", None)
+                data = _post_json(url, fallback_payload, headers, timeout_seconds=self.timeout_seconds)
             output_text = data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError, HTTPError, URLError, TimeoutError) as exc:
+        except (
+            KeyError,
+            IndexError,
+            TypeError,
+            HTTPError,
+            URLError,
+            TimeoutError,
+            OSError,
+            RemoteDisconnected,
+        ) as exc:
             return _error(rule_classification, f"OpenAI-compatible request failed: {exc}")
 
         return _parse_response_text(output_text, rule_classification, source="ai-openai-compatible")
@@ -165,9 +192,15 @@ class AILabeler:
                 {"role": "user", "content": prompt},
             ],
             "format": "json",
+            "options": {"num_predict": 400},
         }
         try:
-            data = _post_json(f"{base_url}/api/chat", payload, {"Content-Type": "application/json"})
+            data = _post_json(
+                f"{base_url}/api/chat",
+                payload,
+                {"Content-Type": "application/json"},
+                timeout_seconds=self.timeout_seconds,
+            )
             output_text = data["message"]["content"]
         except (KeyError, TypeError, HTTPError, URLError, TimeoutError) as exc:
             return _error(rule_classification, f"Ollama request failed: {exc}")
@@ -208,6 +241,21 @@ Content preview:
 """.strip()
 
 
+def _label_schema() -> dict[str, object]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "category": {"type": "string", "enum": sorted(ALLOWED_CATEGORIES)},
+            "subfolder": {"type": ["string", "null"]},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+            "summary": {"type": "string"},
+            "reason": {"type": "string"},
+        },
+        "required": ["category", "subfolder", "confidence", "summary", "reason"],
+    }
+
+
 def _parse_response_text(output_text: str | None, fallback: Classification, source: str) -> Classification:
     if not output_text:
         return fallback
@@ -227,9 +275,9 @@ def _parse_response_text(output_text: str | None, fallback: Classification, sour
         category=category,
         subfolder=subfolder,
         confidence=max(0.0, min(1.0, confidence)),
-        reason=str(data.get("reason", "AI suggested this category.")),
+        reason=str(data.get("reason", "AI suggested this category."))[:300],
         source=source,
-        summary=str(data.get("summary", ""))[:500],
+        summary=str(data.get("summary", ""))[:240],
     )
 
 
@@ -254,15 +302,26 @@ def _default_base_url_for_provider(provider: str) -> str | None:
     return None
 
 
-def _post_json(url: str, payload: dict[str, object], headers: dict[str, str]) -> dict[str, object]:
+def _post_json(
+    url: str,
+    payload: dict[str, object],
+    headers: dict[str, str],
+    timeout_seconds: int,
+) -> dict[str, object]:
     request = Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
         headers=headers,
         method="POST",
     )
-    with urlopen(request, timeout=45) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        if detail:
+            raise HTTPError(exc.url, exc.code, f"{exc.reason}: {detail}", exc.headers, exc.fp) from exc
+        raise
 
 
 def _strip_markdown_fence(text: str) -> str:

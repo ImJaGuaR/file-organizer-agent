@@ -58,6 +58,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Base URL for openai-compatible or ollama providers.",
     )
     parser.add_argument(
+        "--ai-timeout",
+        type=int,
+        help="Seconds to wait for each AI request. Defaults to AI_TIMEOUT_SECONDS or 30.",
+    )
+    parser.add_argument(
+        "--ai-max-files",
+        type=int,
+        help="Maximum number of files to send to AI in one run. Useful for slow local models.",
+    )
+    parser.add_argument(
         "--env-file",
         default=".env",
         help="Optional .env file to load before reading API settings.",
@@ -98,6 +108,7 @@ def main(argv: list[str] | None = None) -> int:
             enabled=True,
             provider=args.ai_provider,
             base_url=args.base_url,
+            timeout_seconds=args.ai_timeout,
         )
         print("AI authentication status")
         print(f"- provider: {ai_labeler.provider}")
@@ -143,12 +154,19 @@ def main(argv: list[str] | None = None) -> int:
         enabled=args.use_ai,
         provider=args.ai_provider,
         base_url=args.base_url,
+        timeout_seconds=args.ai_timeout,
     )
     classifications: dict[Path, Classification] = {}
+    ai_calls_remaining = args.ai_max_files
 
     for signal in signals:
         rule_classification = classify_with_rules(signal, memory)
-        ai_classification = ai_labeler.classify(signal, rule_classification)
+        if ai_calls_remaining is not None and ai_calls_remaining <= 0:
+            ai_classification = None
+        else:
+            ai_classification = ai_labeler.classify(signal, rule_classification)
+            if ai_classification is not None and ai_classification.source.startswith("ai-"):
+                ai_calls_remaining = None if ai_calls_remaining is None else ai_calls_remaining - 1
         classifications[signal.path] = choose_final_classification(
             rule_classification,
             ai_classification,

@@ -70,6 +70,22 @@ Then run:
 python -m file_organizer sample_messy_folder --use-ai --ai-provider openai-compatible
 ```
 
+For LM Studio, use the base URL and model name shown in the Developer tab. Example:
+
+```bash
+AI_PROVIDER=openai-compatible
+OPENAI_COMPATIBLE_BASE_URL=http://localhost:1234/v1
+OPENAI_COMPATIBLE_API_KEY=lm-studio
+OPENAI_COMPATIBLE_MODEL=google/gemma-4-26b-a4b
+AI_TIMEOUT_SECONDS=30
+```
+
+Local models can be slower than cloud APIs. For a quick demo, ask AI to label only the first file and let rules handle the rest:
+
+```bash
+python -m file_organizer sample_messy_folder --use-ai --ai-provider openai-compatible --ai-max-files 1 --ai-timeout 20
+```
+
 ### Option 3: Local Ollama
 
 This option uses a local model and does not need an API key:
