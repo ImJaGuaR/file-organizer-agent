@@ -8,7 +8,7 @@ from http.client import RemoteDisconnected
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from .config import DEFAULT_MODEL
+from .config import DEFAULT_MODEL, PURPOSE_CATEGORIES
 from .models import Classification, FileSignal
 
 ALLOWED_CATEGORIES = {
@@ -21,7 +21,7 @@ ALLOWED_CATEGORIES = {
     "Videos",
     "Research",
     "Review",
-}
+} | PURPOSE_CATEGORIES
 
 
 @dataclass
@@ -241,11 +241,23 @@ You are the GenAI labeling module for a File Organizer Agent.
 Choose the best folder for the file. Return only JSON matching the schema.
 
 Allowed top-level categories:
-Documents, Images, Code, Data, Archives, Audio, Videos, Research, Review.
+Documents, Images, Code, Data, Archives, Audio, Videos, Research, Review,
+Ideas, Finance, Coursework, Meetings, Personal, Projects, Backups, Design.
 
 Use Review when uncertain. Prefer Research for academic papers, assignments,
 milestones, literature reviews, citations, experiments, OS/coursework, or thesis work.
 {custom_folder_instruction}
+
+Prefer PURPOSE over file type.
+Use file type as the subfolder when purpose is known.
+Examples:
+- voice_memo_project_idea.m4a -> Ideas / Audio
+- invoice_april_2026.pdf -> Finance / PDFs
+- bank_statement_may.csv -> Finance / CSV
+- meeting_notes_team_alpha.txt -> Meetings / Text
+- lecture_slides_week_04.pptx -> Coursework / Presentations
+- old_project_backup.tar.gz -> Backups / Archives
+- system_architecture_diagram.svg -> Design / Diagrams
 
 Write clean, short English:
 - summary: max 12 words, no repeated words.

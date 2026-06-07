@@ -39,3 +39,21 @@ def test_screenshot_image_gets_screenshot_subfolder() -> None:
 def test_unknown_goes_to_review() -> None:
     result = classify_with_rules(signal("mystery.blob"))
     assert result.category == "Review"
+
+
+def test_voice_memo_project_idea_uses_purpose_before_type() -> None:
+    result = classify_with_rules(signal("voice_memo_project_idea.m4a"))
+    assert result.category == "Ideas"
+    assert result.subfolder == "Audio"
+
+
+def test_invoice_uses_finance_before_pdf_type() -> None:
+    result = classify_with_rules(signal("invoice_april_2026.pdf"))
+    assert result.category == "Finance"
+    assert result.subfolder == "PDFs"
+
+
+def test_backup_uses_backup_before_research_project_keyword() -> None:
+    result = classify_with_rules(signal("old_project_backup.tar.gz"))
+    assert result.category == "Backups"
+    assert result.subfolder == "Archives"

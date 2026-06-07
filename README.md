@@ -10,6 +10,7 @@ The agent works without an API key using local rules. If you provide AI credenti
 - Classifies documents, images, audio, videos, code, archives, spreadsheets, data, research, and unknown files.
 - Reads safe short previews from text files, code files, CSV/JSON files, and DOCX files.
 - Optionally uses OpenAI, OpenAI-compatible APIs, or local Ollama for structured AI labels.
+- Organizes by purpose first when possible, then file type. For example, a voice memo about a project idea goes to `Ideas/Audio`, not only `Audio`.
 - Creates a safe move plan before changing anything.
 - Uses dry-run mode by default.
 - Avoids overwriting files by renaming duplicates.
@@ -239,6 +240,19 @@ Organized/
   Audio/
   Videos/
   Research/
+  Ideas/
+    Audio/
+    Text/
+  Finance/
+    PDFs/
+    CSV/
+    Spreadsheets/
+  Coursework/
+    PDFs/
+    Presentations/
+  Meetings/
+  Backups/
+    Archives/
   Review/
   Reports/
 ```

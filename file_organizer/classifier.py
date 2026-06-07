@@ -3,11 +3,17 @@ from __future__ import annotations
 from .config import (
     ARCHIVE_EXTENSIONS,
     AUDIO_EXTENSIONS,
+    BACKUP_KEYWORDS,
     CODE_EXTENSIONS,
+    COURSEWORK_KEYWORDS,
     DATA_EXTENSIONS,
     DIAGRAM_KEYWORDS,
     DOCUMENT_EXTENSIONS,
+    FINANCE_KEYWORDS,
+    IDEA_KEYWORDS,
     IMAGE_EXTENSIONS,
+    MEETING_KEYWORDS,
+    PERSONAL_KEYWORDS,
     RESEARCH_KEYWORDS,
     SCREENSHOT_KEYWORDS,
     VIDEO_EXTENSIONS,
@@ -30,6 +36,10 @@ def classify_with_rules(signal: FileSignal, memory: OrganizerMemory | None = Non
             )
 
     text = f"{signal.name}\n{signal.preview}".lower()
+
+    purpose = _purpose_classification(signal, text)
+    if purpose:
+        return purpose
 
     if _looks_research_related(text):
         return Classification(
@@ -89,6 +99,42 @@ def choose_final_classification(
 
 def _looks_research_related(text: str) -> bool:
     return any(keyword in text for keyword in RESEARCH_KEYWORDS)
+
+
+def _purpose_classification(signal: FileSignal, text: str) -> Classification | None:
+    type_folder = _type_folder_for_purpose(signal)
+    if any(keyword in text for keyword in IDEA_KEYWORDS):
+        return Classification("Ideas", type_folder, 0.92, "File name or content suggests an idea or brainstorm.")
+    if any(keyword in text for keyword in FINANCE_KEYWORDS):
+        return Classification("Finance", type_folder, 0.9, "File name or content suggests finance or money records.")
+    if any(keyword in text for keyword in MEETING_KEYWORDS):
+        return Classification("Meetings", type_folder, 0.88, "File name or content suggests meeting notes or action items.")
+    if any(keyword in text for keyword in BACKUP_KEYWORDS):
+        return Classification("Backups", type_folder, 0.88, "File name suggests a backup or archived copy.")
+    if any(keyword in text for keyword in COURSEWORK_KEYWORDS):
+        return Classification("Coursework", type_folder, 0.88, "File name or content suggests class/course material.")
+    if any(keyword in text for keyword in PERSONAL_KEYWORDS):
+        return Classification("Personal", type_folder, 0.86, "File name or content suggests personal material.")
+    return None
+
+
+def _type_folder_for_purpose(signal: FileSignal) -> str | None:
+    extension = signal.extension
+    if extension in AUDIO_EXTENSIONS:
+        return "Audio"
+    if extension in VIDEO_EXTENSIONS:
+        return "Videos"
+    if extension in IMAGE_EXTENSIONS:
+        return _image_subfolder(signal.name.lower())
+    if extension in DOCUMENT_EXTENSIONS:
+        return DOCUMENT_EXTENSIONS[extension][1]
+    if extension in DATA_EXTENSIONS:
+        return DATA_EXTENSIONS[extension][1]
+    if extension in CODE_EXTENSIONS:
+        return _code_subfolder(extension) or "Code"
+    if extension in ARCHIVE_EXTENSIONS:
+        return "Archives"
+    return None
 
 
 def _image_subfolder(text: str) -> str:

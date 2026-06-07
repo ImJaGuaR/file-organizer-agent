@@ -6,6 +6,17 @@ DEFAULT_OUTPUT_FOLDER = "Organized"
 REPORTS_FOLDER = "Reports"
 DEFAULT_MODEL = "gpt-5.4-mini"
 
+PURPOSE_CATEGORIES = {
+    "Ideas",
+    "Finance",
+    "Coursework",
+    "Meetings",
+    "Personal",
+    "Projects",
+    "Backups",
+    "Design",
+}
+
 DOCUMENT_EXTENSIONS = {
     ".pdf": ("Documents", "PDFs"),
     ".doc": ("Documents", "Word"),
@@ -85,6 +96,13 @@ RESEARCH_KEYWORDS = {
     "project",
     "milestone",
 }
+
+IDEA_KEYWORDS = {"idea", "ideas", "brainstorm", "concept", "proposal draft"}
+FINANCE_KEYWORDS = {"invoice", "receipt", "bank", "statement", "budget", "tax", "payment"}
+COURSEWORK_KEYWORDS = {"assignment", "lecture", "slides", "grades", "semester", "coursework", "homework"}
+MEETING_KEYWORDS = {"meeting", "minutes", "action items", "team sync"}
+PERSONAL_KEYWORDS = {"todo", "personal", "family", "vacation", "profile"}
+BACKUP_KEYWORDS = {"backup", "archive copy", "old project"}
 
 SCREENSHOT_KEYWORDS = {"screenshot", "screen shot", "capture"}
 DIAGRAM_KEYWORDS = {"diagram", "flowchart", "architecture", "system", "uml"}
