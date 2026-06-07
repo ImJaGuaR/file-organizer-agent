@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from .ai_labeler import AILabeler
+from .auth import load_dotenv, masked
 from .classifier import choose_final_classification, classify_with_rules
 from .config import DEFAULT_OUTPUT_FOLDER, default_memory_path
 from .memory import OrganizerMemory
@@ -41,11 +42,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--use-ai",
         action="store_true",
-        help="Use OpenAI for additional labeling when OPENAI_API_KEY is set.",
+        help="Use an AI provider for additional labeling.",
+    )
+    parser.add_argument(
+        "--ai-provider",
+        choices=["openai", "openai-compatible", "ollama"],
+        help="AI provider. Defaults to AI_PROVIDER or openai.",
     )
     parser.add_argument(
         "--model",
-        help="OpenAI model to use for AI labeling. Defaults to OPENAI_MODEL or the project default.",
+        help="Model to use for AI labeling. Defaults depend on provider environment variables.",
+    )
+    parser.add_argument(
+        "--base-url",
+        help="Base URL for openai-compatible or ollama providers.",
+    )
+    parser.add_argument(
+        "--env-file",
+        default=".env",
+        help="Optional .env file to load before reading API settings.",
+    )
+    parser.add_argument(
+        "--auth-status",
+        action="store_true",
+        help="Show AI provider authentication status and exit.",
     )
     parser.add_argument(
         "--memory-file",
@@ -69,7 +89,31 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    load_dotenv(args.env_file)
     memory = OrganizerMemory(Path(args.memory_file))
+
+    if args.auth_status:
+        ai_labeler = AILabeler.from_environment(
+            model=args.model,
+            enabled=True,
+            provider=args.ai_provider,
+            base_url=args.base_url,
+        )
+        print("AI authentication status")
+        print(f"- provider: {ai_labeler.provider}")
+        print(f"- model: {ai_labeler.model}")
+        print(f"- base_url: {ai_labeler.base_url or '(provider default)'}")
+        if ai_labeler.provider == "openai":
+            import os
+
+            print(f"- OPENAI_API_KEY: {masked(os.getenv('OPENAI_API_KEY'))}")
+        elif ai_labeler.provider == "openai-compatible":
+            import os
+
+            print(f"- OPENAI_COMPATIBLE_API_KEY: {masked(os.getenv('OPENAI_COMPATIBLE_API_KEY'))}")
+        else:
+            print("- API key: not needed")
+        return 0
 
     if args.learn_extension:
         extension, folder = args.learn_extension
@@ -94,7 +138,12 @@ def main(argv: list[str] | None = None) -> int:
         recursive=args.recursive,
         include_hidden=args.include_hidden,
     )
-    ai_labeler = AILabeler.from_environment(model=args.model, enabled=args.use_ai)
+    ai_labeler = AILabeler.from_environment(
+        model=args.model,
+        enabled=args.use_ai,
+        provider=args.ai_provider,
+        base_url=args.base_url,
+    )
     classifications: dict[Path, Classification] = {}
 
     for signal in signals:
@@ -115,6 +164,7 @@ def main(argv: list[str] | None = None) -> int:
         errors=errors,
         metadata={
             "ai_requested": args.use_ai,
+            "ai_provider": ai_labeler.provider if args.use_ai else None,
             "ai_model": ai_labeler.model if args.use_ai else None,
             "recursive": args.recursive,
         },

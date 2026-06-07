@@ -2,14 +2,14 @@
 
 A simple AI-assisted agent that observes a messy folder, reasons about file categories, safely plans moves, acts only when approved, and writes a report.
 
-The agent works without an API key using local rules. If you provide an OpenAI API key, it can also ask an AI model to improve labels for text-like files such as assignments, notes, code, CSV files, and research documents.
+The agent works without an API key using local rules. If you provide AI credentials, it can also ask a model to improve labels for text-like files such as assignments, notes, code, CSV files, and research documents.
 
 ## Features
 
 - Scans a selected folder and reads file metadata.
 - Classifies documents, images, audio, videos, code, archives, spreadsheets, data, research, and unknown files.
 - Reads safe short previews from text files, code files, CSV/JSON files, and DOCX files.
-- Optionally uses OpenAI for structured AI labels.
+- Optionally uses OpenAI, OpenAI-compatible APIs, or local Ollama for structured AI labels.
 - Creates a safe move plan before changing anything.
 - Uses dry-run mode by default.
 - Avoids overwriting files by renaming duplicates.
@@ -32,16 +32,64 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-AI is optional. To enable OpenAI labeling:
+AI is optional. The safest setup is to copy the example environment file and add your own key locally:
+
+```bash
+cp .env.example .env
+```
+
+Do not commit `.env`; it is ignored by Git.
+
+### Option 1: OpenAI API
 
 ```bash
 export OPENAI_API_KEY="your_api_key_here"
+export AI_PROVIDER="openai"
 ```
 
 The default model is `gpt-5.4-mini`, chosen as a lower-cost model suitable for structured labeling. You can override it:
 
 ```bash
 export OPENAI_MODEL="gpt-5.4-mini"
+```
+
+### Option 2: Any OpenAI-Compatible API
+
+Use this for providers that support a `/v1/chat/completions` style endpoint.
+
+```bash
+export AI_PROVIDER="openai-compatible"
+export OPENAI_COMPATIBLE_API_KEY="your_provider_key"
+export OPENAI_COMPATIBLE_BASE_URL="https://api.your-provider.com/v1"
+export OPENAI_COMPATIBLE_MODEL="provider/model-name"
+```
+
+Then run:
+
+```bash
+python -m file_organizer sample_messy_folder --use-ai --ai-provider openai-compatible
+```
+
+### Option 3: Local Ollama
+
+This option uses a local model and does not need an API key:
+
+```bash
+export AI_PROVIDER="ollama"
+export OLLAMA_BASE_URL="http://localhost:11434"
+export OLLAMA_MODEL="llama3.1"
+```
+
+Then run:
+
+```bash
+python -m file_organizer sample_messy_folder --use-ai --ai-provider ollama
+```
+
+Check the current AI configuration:
+
+```bash
+python -m file_organizer --auth-status
 ```
 
 ## Quick Demo
@@ -127,9 +175,9 @@ Organized/
 
 The agent never moves files unless you pass `--apply`. It also avoids overwriting by generating names like `file (1).pdf` when a destination already exists.
 
-## OpenAI API Notes
+## AI Authentication Notes
 
-This project uses the OpenAI Responses API through the official Python SDK. The API key is read from `OPENAI_API_KEY`; it is not stored in this project.
+This project does not reuse your Codex or ChatGPT login. The OpenAI API uses API keys for normal server-side authentication, so the key is read from `OPENAI_API_KEY` or `.env`; it is not stored in GitHub.
 
 The AI labeling module sends only file metadata and a short text preview, not the whole folder. It asks the model to return structured JSON with:
 

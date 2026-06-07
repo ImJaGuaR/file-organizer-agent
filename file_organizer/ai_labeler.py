@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from .config import DEFAULT_MODEL
 from .models import Classification, FileSignal
@@ -24,39 +26,61 @@ ALLOWED_CATEGORIES = {
 class AILabeler:
     model: str = DEFAULT_MODEL
     enabled: bool = False
+    provider: str = "openai"
+    base_url: str | None = None
 
     @classmethod
-    def from_environment(cls, model: str | None = None, enabled: bool = False) -> "AILabeler":
-        return cls(model=model or os.getenv("OPENAI_MODEL", DEFAULT_MODEL), enabled=enabled)
+    def from_environment(
+        cls,
+        model: str | None = None,
+        enabled: bool = False,
+        provider: str | None = None,
+        base_url: str | None = None,
+    ) -> "AILabeler":
+        selected_provider = (provider or os.getenv("AI_PROVIDER") or "openai").lower()
+        selected_model = model or _default_model_for_provider(selected_provider)
+        selected_base_url = base_url or _default_base_url_for_provider(selected_provider)
+        return cls(
+            model=selected_model,
+            enabled=enabled,
+            provider=selected_provider,
+            base_url=selected_base_url,
+        )
 
     def classify(self, signal: FileSignal, rule_classification: Classification) -> Classification | None:
         if not self.enabled:
             return None
-        if not os.getenv("OPENAI_API_KEY"):
-            return Classification(
-                category=rule_classification.category,
-                subfolder=rule_classification.subfolder,
-                confidence=rule_classification.confidence,
-                reason="AI requested, but OPENAI_API_KEY is not set; used rule classification.",
-                source="ai-unavailable",
-                summary=rule_classification.summary,
-            )
         if not _worth_ai_call(signal, rule_classification):
             return None
 
+        prompt = _build_prompt(signal, rule_classification)
+        if self.provider == "openai":
+            return self._classify_openai(prompt, rule_classification)
+        if self.provider == "openai-compatible":
+            return self._classify_openai_compatible(prompt, rule_classification)
+        if self.provider == "ollama":
+            return self._classify_ollama(prompt, rule_classification)
+
+        return _unavailable(
+            rule_classification,
+            f"Unknown AI provider '{self.provider}'; used rule classification.",
+        )
+
+    def _classify_openai(self, prompt: str, rule_classification: Classification) -> Classification:
+        if not os.getenv("OPENAI_API_KEY"):
+            return _unavailable(
+                rule_classification,
+                "AI requested, but OPENAI_API_KEY is not set; used rule classification.",
+            )
         try:
             from openai import OpenAI
         except ImportError:
-            return Classification(
-                category=rule_classification.category,
-                subfolder=rule_classification.subfolder,
-                confidence=rule_classification.confidence,
-                reason="AI requested, but the openai package is not installed; used rule classification.",
-                source="ai-unavailable",
+            return _unavailable(
+                rule_classification,
+                "AI requested, but the openai package is not installed; used rule classification.",
             )
 
         client = OpenAI()
-        prompt = _build_prompt(signal, rule_classification)
         try:
             response = client.responses.create(
                 model=self.model,
@@ -82,15 +106,73 @@ class AILabeler:
                 },
             )
         except Exception as exc:
-            return Classification(
-                category=rule_classification.category,
-                subfolder=rule_classification.subfolder,
-                confidence=rule_classification.confidence,
-                reason=f"AI request failed; used rule classification. Error: {exc}",
-                source="ai-error",
+            return _error(rule_classification, f"OpenAI request failed: {exc}")
+
+        return _parse_response_text(
+            getattr(response, "output_text", None),
+            rule_classification,
+            source="ai-openai",
+        )
+
+    def _classify_openai_compatible(self, prompt: str, rule_classification: Classification) -> Classification:
+        api_key = os.getenv("OPENAI_COMPATIBLE_API_KEY")
+        if not api_key:
+            return _unavailable(
+                rule_classification,
+                "AI requested, but OPENAI_COMPATIBLE_API_KEY is not set; used rule classification.",
+            )
+        if not self.base_url:
+            return _unavailable(
+                rule_classification,
+                "AI requested, but OPENAI_COMPATIBLE_BASE_URL is not set; used rule classification.",
             )
 
-        return _parse_response(response, rule_classification)
+        url = self.base_url.rstrip("/") + "/chat/completions"
+        payload = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "Return only valid JSON for the file label. No markdown.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0,
+            "response_format": {"type": "json_object"},
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        try:
+            data = _post_json(url, payload, headers)
+            output_text = data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError, HTTPError, URLError, TimeoutError) as exc:
+            return _error(rule_classification, f"OpenAI-compatible request failed: {exc}")
+
+        return _parse_response_text(output_text, rule_classification, source="ai-openai-compatible")
+
+    def _classify_ollama(self, prompt: str, rule_classification: Classification) -> Classification:
+        base_url = (self.base_url or "http://localhost:11434").rstrip("/")
+        payload = {
+            "model": self.model,
+            "stream": False,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "Return only valid JSON for the file label. No markdown.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            "format": "json",
+        }
+        try:
+            data = _post_json(f"{base_url}/api/chat", payload, {"Content-Type": "application/json"})
+            output_text = data["message"]["content"]
+        except (KeyError, TypeError, HTTPError, URLError, TimeoutError) as exc:
+            return _error(rule_classification, f"Ollama request failed: {exc}")
+
+        return _parse_response_text(output_text, rule_classification, source="ai-ollama")
 
 
 def _worth_ai_call(signal: FileSignal, rule_classification: Classification) -> bool:
@@ -126,10 +208,10 @@ Content preview:
 """.strip()
 
 
-def _parse_response(response: object, fallback: Classification) -> Classification:
-    output_text = getattr(response, "output_text", None)
+def _parse_response_text(output_text: str | None, fallback: Classification, source: str) -> Classification:
     if not output_text:
         return fallback
+    output_text = _strip_markdown_fence(output_text)
     try:
         data = json.loads(output_text)
     except json.JSONDecodeError:
@@ -146,6 +228,68 @@ def _parse_response(response: object, fallback: Classification) -> Classificatio
         subfolder=subfolder,
         confidence=max(0.0, min(1.0, confidence)),
         reason=str(data.get("reason", "AI suggested this category.")),
-        source="ai",
+        source=source,
         summary=str(data.get("summary", ""))[:500],
+    )
+
+
+def _default_model_for_provider(provider: str) -> str:
+    if provider == "openai-compatible":
+        return (
+            os.getenv("OPENAI_COMPATIBLE_MODEL")
+            or os.getenv("AI_MODEL")
+            or os.getenv("OPENAI_MODEL")
+            or DEFAULT_MODEL
+        )
+    if provider == "ollama":
+        return os.getenv("OLLAMA_MODEL") or os.getenv("AI_MODEL") or "llama3.1"
+    return os.getenv("OPENAI_MODEL") or os.getenv("AI_MODEL") or DEFAULT_MODEL
+
+
+def _default_base_url_for_provider(provider: str) -> str | None:
+    if provider == "openai-compatible":
+        return os.getenv("OPENAI_COMPATIBLE_BASE_URL")
+    if provider == "ollama":
+        return os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    return None
+
+
+def _post_json(url: str, payload: dict[str, object], headers: dict[str, str]) -> dict[str, object]:
+    request = Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    with urlopen(request, timeout=45) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _strip_markdown_fence(text: str) -> str:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.removeprefix("```json").removeprefix("```").strip()
+        stripped = stripped.removesuffix("```").strip()
+    return stripped
+
+
+def _unavailable(fallback: Classification, reason: str) -> Classification:
+    return Classification(
+        category=fallback.category,
+        subfolder=fallback.subfolder,
+        confidence=fallback.confidence,
+        reason=reason,
+        source="ai-unavailable",
+        summary=fallback.summary,
+    )
+
+
+def _error(fallback: Classification, reason: str) -> Classification:
+    return Classification(
+        category=fallback.category,
+        subfolder=fallback.subfolder,
+        confidence=fallback.confidence,
+        reason=f"AI request failed; used rule classification. Error: {reason}",
+        source="ai-error",
+        summary=fallback.summary,
     )
