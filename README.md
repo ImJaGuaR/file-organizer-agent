@@ -184,6 +184,7 @@ organize my Downloads with LM Studio AI, create folders if needed, and move the 
 ```
 
 The agent will interpret the request, show the target, output folder, AI settings, and whether it plans to move files. If the request would move files, it asks for confirmation first.
+The interactive screen uses readable labels such as `Intelligence`, `Folder strategy`, and `Mode` instead of internal option names.
 
 You can also force the prompt mode:
 

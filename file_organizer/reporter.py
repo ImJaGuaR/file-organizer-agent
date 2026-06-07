@@ -5,30 +5,62 @@ from datetime import datetime
 import json
 from pathlib import Path
 
+from .console import heading, label, muted, rule, shorten_path, status
 from .config import REPORTS_FOLDER
 from .models import MoveAction, OrganizationReport
 
 
 def print_plan(actions: list[MoveAction], dry_run: bool) -> None:
-    mode = "DRY RUN" if dry_run else "APPLY"
-    print(f"\nFile Organizer Agent - {mode}")
-    print("=" * 72)
-    for action in actions:
-        rel_source = action.source
-        rel_destination = action.destination
-        print(f"[{action.action.upper()}] {rel_source} -> {rel_destination}")
-        print(
-            f"  category={action.classification.category}"
-            f"/{action.classification.subfolder or ''}"
-            f" confidence={action.classification.confidence:.2f}"
-            f" source={action.classification.source}"
-        )
+    mode = "Preview plan" if dry_run else "Applying plan"
+    tone = "yellow" if dry_run else "green"
+    move_count = sum(1 for action in actions if action.action == "move")
+    skip_count = sum(1 for action in actions if action.action == "skip")
+
+    print()
+    print(heading("Organization Plan"))
+    print(rule())
+    print(f"{label('Mode')}       {status(mode, tone)}")
+    print(f"{label('Files')}      {len(actions)} scanned, {move_count} move, {skip_count} skip")
+    print(rule())
+
+    for index, action in enumerate(actions, start=1):
+        classification = action.classification
+        category = _category_label(classification.category, classification.subfolder)
+        source_label = _source_label(classification.source)
+        tone = "green" if action.action == "move" else "yellow"
+
+        print(f"{status(f'{index:02d}. {action.action.upper()}', tone)}  {category}")
+        print(f"    {muted('from')} {shorten_path(action.source)}")
+        print(f"    {muted('to  ')} {shorten_path(action.destination)}")
         if action.classification.summary:
-            print(f"  summary={action.classification.summary}")
-        print(f"  reason={action.reason}")
-    print("=" * 72)
+            print(f"    {label('summary')} {action.classification.summary}")
+        print(f"    {label('why')}     {action.reason}")
+        print(f"    {label('signal')}  confidence {classification.confidence:.2f} | {source_label}")
+        print()
+    print(rule())
     if dry_run:
-        print("No files were moved. Run again with --apply to execute this plan.")
+        print(status("No files were moved.", "yellow") + " Run again with --apply, or ask the interactive agent to move them.")
+    else:
+        print(status("Done.", "green") + " Files were moved according to the plan.")
+
+
+def _category_label(category: str, subfolder: str | None) -> str:
+    path = f"{category}/{subfolder}" if subfolder else category
+    return label(path)
+
+
+def _source_label(source: str) -> str:
+    labels = {
+        "rules": "local rules",
+        "memory": "learned memory",
+        "ai-openai-compatible": "AI label",
+        "ai-openai": "AI label",
+        "ai-ollama": "AI label",
+        "ai-fallback": "AI tried, rules kept it safe",
+        "ai-error": "AI error, rules kept it safe",
+        "ai-unavailable": "AI unavailable, rules kept it safe",
+    }
+    return labels.get(source, source)
 
 
 def write_reports(report: OrganizationReport) -> tuple[Path, Path]:
