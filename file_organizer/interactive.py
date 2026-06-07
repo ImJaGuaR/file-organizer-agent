@@ -28,28 +28,11 @@ def configure_from_prompt(args: Namespace) -> bool:
     args.target = str(target)
     lower = request.lower()
 
-    args.use_ai = args.use_ai or _has_any(lower, [" ai", "smart", "model", "lm studio", "llm"])
+    args.use_ai = True
     args.ai_provider = args.ai_provider or ("openai-compatible" if "lm studio" in lower else args.ai_provider)
-    args.ai_scope = args.ai_scope or ("all" if args.use_ai or _has_any(lower, ["all files", "every file", "everything", "move all"]) else "smart")
-    args.ai_prefer = args.ai_prefer or _has_any(lower, ["prefer ai", "ai decide", "smarter", "smart"])
-    args.ai_custom_folders = args.ai_custom_folders or _has_any(
-        lower,
-        [
-            "create folder",
-            "create folders",
-            "new folder",
-            "new folders",
-            "no appropriate",
-            "no apropriate",
-            "appropriate folder",
-            "apropriate folder",
-            "if needed",
-        ],
-    )
-    if args.ai_custom_folders:
-        args.use_ai = True
-        args.ai_scope = args.ai_scope or "all"
-        args.ai_prefer = True
+    args.ai_scope = args.ai_scope or "all"
+    args.ai_prefer = True
+    args.ai_custom_folders = True
     args.recursive = args.recursive or _has_any(lower, ["subfolder", "subfolders", "recursive", "inside folders"])
     if args.output is None:
         output = _resolve_output(request)

@@ -104,3 +104,24 @@ def test_interactive_keeps_explicit_target_when_prompt_mentions_downloads(tmp_pa
     assert f"Output          {Path.home()}" in output
     assert "inside target folder: Organized" not in output
     assert source.exists()
+
+
+def test_interactive_defaults_to_ai_first(tmp_path: Path, capsys, monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    target = tmp_path / "messy"
+    target.mkdir()
+    source = target / "notes.txt"
+    source.write_text("plain notes", encoding="utf-8")
+    old_stdin = sys.stdin
+    sys.stdin = TtyInput("show the plan\n\n")
+    try:
+        exit_code = main(["--interactive", str(target), "--env-file", str(tmp_path / "missing.env"), "--no-report"])
+    finally:
+        sys.stdin = old_stdin
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "AI requested, but" in output
+    assert "local rules" not in output
+    assert source.exists()
