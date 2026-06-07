@@ -98,6 +98,22 @@ For the clearest classroom demo, prefer AI labels whenever the model returns val
 python -m file_organizer sample_messy_folder --use-ai --ai-provider openai-compatible --ai-scope all --ai-prefer --ai-timeout 30
 ```
 
+Allow the AI to create new sanitized folder categories when the built-in categories do not fit:
+
+```bash
+python -m file_organizer sample_messy_folder --use-ai --ai-provider openai-compatible --ai-scope all --ai-prefer --ai-custom-folders --ai-timeout 30
+```
+
+The planner creates missing folders automatically. AI folder names are sanitized before use, so unsafe path parts such as `..` are not allowed.
+
+For a more autonomous run, let the agent apply the plan only if every planned move is confident and no file is sent to `Review`:
+
+```bash
+python -m file_organizer sample_messy_folder --use-ai --ai-provider openai-compatible --ai-scope all --ai-prefer --ai-custom-folders --auto-apply-min-confidence 0.80 --ai-timeout 30
+```
+
+This is safer than blindly moving files because low-confidence files still stay in dry-run mode.
+
 For slow local models, combine all-file AI with a limit while testing:
 
 ```bash

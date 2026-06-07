@@ -32,6 +32,7 @@ class AILabeler:
     base_url: str | None = None
     timeout_seconds: int = 30
     scope: str = "smart"
+    allow_custom_folders: bool = False
 
     @classmethod
     def from_environment(
@@ -42,6 +43,7 @@ class AILabeler:
         base_url: str | None = None,
         timeout_seconds: int | None = None,
         scope: str | None = None,
+        allow_custom_folders: bool = False,
     ) -> "AILabeler":
         selected_provider = (provider or os.getenv("AI_PROVIDER") or "openai").lower()
         selected_model = model or _default_model_for_provider(selected_provider)
@@ -54,6 +56,7 @@ class AILabeler:
             base_url=selected_base_url,
             timeout_seconds=selected_timeout,
             scope=scope or os.getenv("AI_SCOPE", "smart"),
+            allow_custom_folders=allow_custom_folders,
         )
 
     def classify(self, signal: FileSignal, rule_classification: Classification) -> Classification | None:
@@ -62,7 +65,7 @@ class AILabeler:
         if not _worth_ai_call(signal, rule_classification, self.scope):
             return None
 
-        prompt = _build_prompt(signal, rule_classification)
+        prompt = _build_prompt(signal, rule_classification, self.allow_custom_folders)
         if self.provider == "openai":
             return self._classify_openai(prompt, rule_classification)
         if self.provider == "openai-compatible":
@@ -98,18 +101,7 @@ class AILabeler:
                     "format": {
                         "type": "json_schema",
                         "name": "file_label",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": False,
-                            "properties": {
-                                "category": {"type": "string", "enum": sorted(ALLOWED_CATEGORIES)},
-                                "subfolder": {"type": ["string", "null"]},
-                                "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-                                "summary": {"type": "string"},
-                                "reason": {"type": "string"},
-                            },
-                            "required": ["category", "subfolder", "confidence", "summary", "reason"],
-                        },
+                        "schema": _label_schema(self.allow_custom_folders),
                         "strict": True,
                     }
                 },
@@ -121,6 +113,7 @@ class AILabeler:
             getattr(response, "output_text", None),
             rule_classification,
             source="ai-openai",
+            allow_custom_folders=self.allow_custom_folders,
         )
 
     def _classify_openai_compatible(self, prompt: str, rule_classification: Classification) -> Classification:
@@ -152,7 +145,7 @@ class AILabeler:
                 "type": "json_schema",
                 "json_schema": {
                     "name": "file_label",
-                    "schema": _label_schema(),
+                    "schema": _label_schema(self.allow_custom_folders),
                 },
             },
         }
@@ -181,7 +174,12 @@ class AILabeler:
         ) as exc:
             return _error(rule_classification, f"OpenAI-compatible request failed: {exc}")
 
-        return _parse_response_text(output_text, rule_classification, source="ai-openai-compatible")
+        return _parse_response_text(
+            output_text,
+            rule_classification,
+            source="ai-openai-compatible",
+            allow_custom_folders=self.allow_custom_folders,
+        )
 
     def _classify_ollama(self, prompt: str, rule_classification: Classification) -> Classification:
         base_url = (self.base_url or "http://localhost:11434").rstrip("/")
@@ -209,7 +207,12 @@ class AILabeler:
         except (KeyError, TypeError, HTTPError, URLError, TimeoutError) as exc:
             return _error(rule_classification, f"Ollama request failed: {exc}")
 
-        return _parse_response_text(output_text, rule_classification, source="ai-ollama")
+        return _parse_response_text(
+            output_text,
+            rule_classification,
+            source="ai-ollama",
+            allow_custom_folders=self.allow_custom_folders,
+        )
 
 
 def _worth_ai_call(signal: FileSignal, rule_classification: Classification, scope: str) -> bool:
@@ -220,8 +223,18 @@ def _worth_ai_call(signal: FileSignal, rule_classification: Classification, scop
     return rule_classification.category in {"Research", "Review", "Documents", "Code", "Data"}
 
 
-def _build_prompt(signal: FileSignal, rule_classification: Classification) -> str:
+def _build_prompt(
+    signal: FileSignal,
+    rule_classification: Classification,
+    allow_custom_folders: bool,
+) -> str:
     preview = signal.preview[:900] if signal.preview else "(No content preview available.)"
+    custom_folder_instruction = (
+        "You may create a new top-level category only when none of the allowed categories fit. "
+        "Use safe folder names only."
+        if allow_custom_folders
+        else "Use only the allowed top-level categories."
+    )
     return f"""
 You are the GenAI labeling module for a File Organizer Agent.
 
@@ -232,6 +245,7 @@ Documents, Images, Code, Data, Archives, Audio, Videos, Research, Review.
 
 Use Review when uncertain. Prefer Research for academic papers, assignments,
 milestones, literature reviews, citations, experiments, OS/coursework, or thesis work.
+{custom_folder_instruction}
 
 Write clean, short English:
 - summary: max 12 words, no repeated words.
@@ -252,12 +266,15 @@ Content preview:
 """.strip()
 
 
-def _label_schema() -> dict[str, object]:
+def _label_schema(allow_custom_folders: bool) -> dict[str, object]:
+    category_schema: dict[str, object] = {"type": "string"}
+    if not allow_custom_folders:
+        category_schema["enum"] = sorted(ALLOWED_CATEGORIES)
     return {
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "category": {"type": "string", "enum": sorted(ALLOWED_CATEGORIES)},
+            "category": category_schema,
             "subfolder": {"type": ["string", "null"]},
             "confidence": {"type": "number", "minimum": 0, "maximum": 1},
             "summary": {"type": "string"},
@@ -267,7 +284,12 @@ def _label_schema() -> dict[str, object]:
     }
 
 
-def _parse_response_text(output_text: str | None, fallback: Classification, source: str) -> Classification:
+def _parse_response_text_with_options(
+    output_text: str | None,
+    fallback: Classification,
+    source: str,
+    allow_custom_folders: bool,
+) -> Classification:
     if not output_text:
         return _fallback_after_ai(fallback, "AI returned no text; used rule classification.")
     output_text = _strip_markdown_fence(output_text)
@@ -276,12 +298,14 @@ def _parse_response_text(output_text: str | None, fallback: Classification, sour
         data = json.loads(output_text)
     except json.JSONDecodeError:
         return _fallback_after_ai(fallback, "AI returned invalid JSON; used rule classification.")
-    category = data.get("category")
-    if category not in ALLOWED_CATEGORIES:
+    category = _sanitize_folder_part(str(data.get("category", "")))
+    if category not in ALLOWED_CATEGORIES and not allow_custom_folders:
         return _fallback_after_ai(fallback, "AI returned an unsupported category; used rule classification.")
+    if not category:
+        return _fallback_after_ai(fallback, "AI returned an unsafe folder name; used rule classification.")
     subfolder = data.get("subfolder")
     if subfolder is not None:
-        subfolder = str(subfolder).strip().strip("/\\") or None
+        subfolder = _sanitize_folder_path(str(subfolder)) or None
     confidence = float(data.get("confidence", fallback.confidence))
     return Classification(
         category=category,
@@ -290,6 +314,20 @@ def _parse_response_text(output_text: str | None, fallback: Classification, sour
         reason=_clean_ai_text(str(data.get("reason", "AI suggested this category.")), max_words=24),
         source=source,
         summary=_clean_ai_text(str(data.get("summary", "")), max_words=16),
+    )
+
+
+def _parse_response_text(
+    output_text: str | None,
+    fallback: Classification,
+    source: str,
+    allow_custom_folders: bool,
+) -> Classification:
+    return _parse_response_text_with_options(
+        output_text,
+        fallback,
+        source,
+        allow_custom_folders=allow_custom_folders,
     )
 
 
@@ -302,6 +340,25 @@ def _clean_ai_text(text: str, max_words: int) -> str:
     if len(words) > max_words:
         text = " ".join(words[:max_words]).rstrip(".,;:") + "."
     return text[:220]
+
+
+def _sanitize_folder_part(value: str) -> str:
+    value = re.sub(r"[^A-Za-z0-9 ._-]+", " ", value).strip(" ._-")
+    value = re.sub(r"\s+", " ", value)
+    if value in {"", ".", ".."}:
+        return ""
+    return value[:40]
+
+
+def _sanitize_folder_path(value: str) -> str:
+    parts = []
+    for raw_part in re.split(r"[/\\]+", value):
+        part = _sanitize_folder_part(raw_part)
+        if part:
+            parts.append(part)
+        if len(parts) >= 3:
+            break
+    return "/".join(parts)
 
 
 def _default_model_for_provider(provider: str) -> str:

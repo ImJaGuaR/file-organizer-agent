@@ -78,6 +78,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Prefer parsed AI labels over rule labels. Good for demonstrating a more AI-heavy agent.",
     )
     parser.add_argument(
+        "--ai-custom-folders",
+        action="store_true",
+        help="Allow AI to create sanitized custom top-level folders when normal categories do not fit.",
+    )
+    parser.add_argument(
+        "--auto-apply-min-confidence",
+        type=float,
+        help="Automatically apply the plan only if every move has at least this confidence and no file is in Review.",
+    )
+    parser.add_argument(
         "--env-file",
         default=".env",
         help="Optional .env file to load before reading API settings.",
@@ -120,6 +130,7 @@ def main(argv: list[str] | None = None) -> int:
             base_url=args.base_url,
             timeout_seconds=args.ai_timeout,
             scope=args.ai_scope,
+            allow_custom_folders=args.ai_custom_folders,
         )
         print("AI authentication status")
         print(f"- provider: {ai_labeler.provider}")
@@ -167,6 +178,7 @@ def main(argv: list[str] | None = None) -> int:
         base_url=args.base_url,
         timeout_seconds=args.ai_timeout,
         scope=args.ai_scope,
+        allow_custom_folders=args.ai_custom_folders,
     )
     classifications: dict[Path, Classification] = {}
     ai_calls_remaining = args.ai_max_files
@@ -186,11 +198,21 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     actions = build_move_plan(signals, classifications, output_folder)
-    errors = execute_plan(actions, apply=args.apply)
+    apply_changes = args.apply
+    if not apply_changes and args.auto_apply_min_confidence is not None:
+        apply_changes = _can_auto_apply(actions, args.auto_apply_min_confidence)
+        if apply_changes:
+            print(f"Auto-apply enabled: all planned moves met confidence >= {args.auto_apply_min_confidence:.2f}.")
+        else:
+            print(
+                "Auto-apply skipped: at least one file was low-confidence, uncertain, "
+                "or classified for Review."
+            )
+    errors = execute_plan(actions, apply=apply_changes)
     report = OrganizationReport(
         target_folder=target_folder,
         output_folder=output_folder,
-        dry_run=not args.apply,
+        dry_run=not apply_changes,
         actions=actions,
         errors=errors,
         metadata={
@@ -199,10 +221,12 @@ def main(argv: list[str] | None = None) -> int:
             "ai_model": ai_labeler.model if args.use_ai else None,
             "ai_scope": ai_labeler.scope if args.use_ai else None,
             "ai_prefer": args.ai_prefer if args.use_ai else None,
+            "ai_custom_folders": args.ai_custom_folders if args.use_ai else None,
+            "auto_apply_min_confidence": args.auto_apply_min_confidence,
             "recursive": args.recursive,
         },
     )
-    print_plan(actions, dry_run=not args.apply)
+    print_plan(actions, dry_run=not apply_changes)
 
     if not args.no_report:
         json_path, md_path = write_reports(report)
@@ -211,3 +235,17 @@ def main(argv: list[str] | None = None) -> int:
     if errors:
         return 2
     return 0
+
+
+def _can_auto_apply(actions: list[object], min_confidence: float) -> bool:
+    for action in actions:
+        if action.action != "move":
+            continue
+        classification = action.classification
+        if classification.category == "Review":
+            return False
+        if classification.confidence < min_confidence:
+            return False
+        if classification.source in {"ai-error", "ai-fallback", "ai-unavailable"}:
+            return False
+    return True
