@@ -51,8 +51,10 @@ def configure_from_prompt(args: Namespace) -> bool:
         args.ai_scope = args.ai_scope or "all"
         args.ai_prefer = True
     args.recursive = args.recursive or _has_any(lower, ["subfolder", "subfolders", "recursive", "inside folders"])
-    if args.output is None and _has_any(lower, ["under my user", "under my users", "under my home", "home folder"]):
-        args.output = str(Path.home() / "Organized Files")
+    if args.output is None:
+        output = _resolve_output(request)
+        if output is not None:
+            args.output = str(output)
 
     args.apply = False
     args.auto_apply_min_confidence = None
@@ -87,6 +89,57 @@ def _resolve_target(text: str) -> Path | None:
     if "sample" in lower or "demo" in lower:
         return Path("sample_messy_folder")
     return None
+
+
+def _resolve_output(text: str) -> Path | None:
+    lower = text.lower()
+    home = Path.home()
+
+    explicit_path = _extract_output_path(text)
+    if explicit_path is not None:
+        return explicit_path.expanduser()
+
+    if _has_any(
+        lower,
+        [
+            "to the user folder",
+            "to user folder",
+            "into the user folder",
+            "inside the user folder",
+            "under the user folder",
+            "under my user",
+            "under my users",
+            "to my home",
+            "into my home",
+            "under my home",
+            "home folder",
+            "user home",
+            "my user folder",
+            "my home folder",
+        ],
+    ):
+        return home / "Organized Files"
+
+    if _has_any(lower, ["to desktop", "onto desktop", "desktop folder"]):
+        return home / "Desktop" / "Organized Files"
+    if _has_any(lower, ["to documents", "documents folder"]):
+        return home / "Documents" / "Organized Files"
+    return None
+
+
+def _extract_output_path(text: str) -> Path | None:
+    match = re.search(
+        r"(?:output|destination|move(?: them| files)? to|put(?: them| files)? in|save(?: them| files)? to)\s+"
+        r"((?:~|/|\.)\S+|\"[^\"]+\"|'[^']+')",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    candidate = match.group(1).strip().strip("\"'")
+    if not candidate:
+        return None
+    return Path(candidate)
 
 
 def _has_any(text: str, phrases: list[str]) -> bool:
