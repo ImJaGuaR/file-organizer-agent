@@ -55,7 +55,10 @@ class OpenAICompatibleProvider:
                 "json_schema": {"name": schema_name, "schema": schema, "strict": True},
             },
         }
-        headers = {"Content-Type": "application/json"}
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 file-organizer-agent/0.1",
+        }
         if _should_send_api_key(api_key):
             headers["Authorization"] = f"Bearer {api_key}"
         url = self.config.base_url.rstrip("/") + "/chat/completions"
@@ -69,7 +72,9 @@ class OpenAICompatibleProvider:
                 fallback.pop("response_format", None)
                 data = _post_json(url, fallback, headers, self.config.timeout_seconds)
             return parse_json_object(data["choices"][0]["message"]["content"])
-        except (KeyError, IndexError, TypeError, HTTPError, URLError, TimeoutError, OSError, RemoteDisconnected) as exc:
+        except HTTPError as exc:
+            raise ProviderError(f"OpenAI-compatible request failed: {_http_error_message(exc)}") from exc
+        except (KeyError, IndexError, TypeError, URLError, TimeoutError, OSError, RemoteDisconnected) as exc:
             raise ProviderError(f"OpenAI-compatible request failed: {exc}") from exc
 
 
@@ -88,6 +93,16 @@ def _should_send_api_key(api_key: str | None) -> bool:
     if not api_key:
         return False
     return api_key.strip().lower() not in {"secret", "none", "dummy", "not-required", "not_required"}
+
+
+def _http_error_message(exc: HTTPError) -> str:
+    try:
+        body = exc.read().decode("utf-8", errors="replace").strip()
+    except OSError:
+        body = ""
+    if body:
+        return f"HTTP Error {exc.code}: {body[:500]}"
+    return f"HTTP Error {exc.code}: {exc.reason}"
 
 
 def parse_json_object(text: str) -> dict[str, Any]:
