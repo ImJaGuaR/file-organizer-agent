@@ -28,11 +28,12 @@ class OpenAICompatibleProvider:
         )
 
     def auth_status(self) -> dict[str, str]:
+        api_key = os.getenv("OPENAI_COMPATIBLE_API_KEY")
         return {
             "provider": self.config.provider,
             "model": self.config.model or "",
             "base_url": self.config.base_url or "not set",
-            "OPENAI_COMPATIBLE_API_KEY": "set" if os.getenv("OPENAI_COMPATIBLE_API_KEY") else "not set",
+            "OPENAI_COMPATIBLE_API_KEY": "set" if _should_send_api_key(api_key) else "not sent",
         }
 
     def generate_structured(
@@ -42,8 +43,6 @@ class OpenAICompatibleProvider:
         schema_name: str,
     ) -> dict[str, Any]:
         api_key = os.getenv("OPENAI_COMPATIBLE_API_KEY")
-        if not api_key:
-            raise ProviderUnavailable("AI provider unavailable: OPENAI_COMPATIBLE_API_KEY is not set.")
         if not self.config.base_url:
             raise ProviderUnavailable("AI provider unavailable: OPENAI_COMPATIBLE_BASE_URL is not set.")
 
@@ -56,10 +55,9 @@ class OpenAICompatibleProvider:
                 "json_schema": {"name": schema_name, "schema": schema, "strict": True},
             },
         }
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
+        headers = {"Content-Type": "application/json"}
+        if _should_send_api_key(api_key):
+            headers["Authorization"] = f"Bearer {api_key}"
         url = self.config.base_url.rstrip("/") + "/chat/completions"
         try:
             try:
@@ -86,6 +84,12 @@ def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeo
         return json.loads(response.read().decode("utf-8"))
 
 
+def _should_send_api_key(api_key: str | None) -> bool:
+    if not api_key:
+        return False
+    return api_key.strip().lower() not in {"secret", "none", "dummy", "not-required", "not_required"}
+
+
 def parse_json_object(text: str) -> dict[str, Any]:
     try:
         parsed = json.loads(text)
@@ -98,4 +102,3 @@ def parse_json_object(text: str) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise ValueError("Structured output must be a JSON object.")
     return parsed
-
