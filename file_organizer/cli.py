@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import sys
 
@@ -22,7 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ai-provider", choices=["openai", "openai-compatible", "ollama"], help=argparse.SUPPRESS)
     parser.add_argument("--model", help="Model name.")
     parser.add_argument("--base-url", help="Provider base URL for compatible APIs or Ollama.")
-    parser.add_argument("--ai-timeout", type=int, default=30, help="AI provider timeout in seconds.")
+    parser.add_argument("--ai-timeout", type=int, help="AI provider timeout in seconds. Defaults to AI_TIMEOUT_SECONDS or 30.")
     parser.add_argument("--max-files", "--ai-max-files", dest="max_files", type=int, default=200, help="Maximum files to inspect.")
     parser.add_argument("--recursive", action="store_true", help="Scan subfolders.")
     parser.add_argument("--include-hidden", action="store_true", help="Allow hidden files to be scanned.")
@@ -31,6 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--memory-file", default=str(default_memory_path()), help="Natural-language memory JSON file.")
     parser.add_argument("--env-file", default=".env", help="Optional .env file to load.")
     parser.add_argument("--auth-status", action="store_true", help="Show AI provider auth status and exit.")
+    parser.add_argument("--health-check", action="store_true", help="Make a tiny structured AI request and exit without scanning files.")
     parser.add_argument("--no-report", action="store_true", help="Do not write JSON/Markdown reports.")
     parser.add_argument(
         "--deterministic-basic",
@@ -49,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
         provider=provider_name,
         model=args.model,
         base_url=args.base_url,
-        timeout_seconds=args.ai_timeout,
+        timeout_seconds=args.ai_timeout or _env_int("AI_TIMEOUT_SECONDS", 30, "LLM_TIMEOUT_SECONDS"),
     )
 
     try:
@@ -62,6 +64,9 @@ def main(argv: list[str] | None = None) -> int:
         for key, value in provider.auth_status().items():
             print(f"{key}: {value}")
         return 0
+
+    if args.health_check:
+        return _health_check(provider)
 
     target = Path(args.target).expanduser().resolve() if args.target else None
     destination = Path(args.destination).expanduser().resolve() if args.destination else None
@@ -139,11 +144,49 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _env_provider() -> str:
-    import os
+    provider = os.getenv("AI_PROVIDER") or os.getenv("LLM_PROVIDER") or "openai"
+    if provider.lower() == "g4f":
+        return "openai-compatible"
+    return provider
 
-    return os.getenv("AI_PROVIDER", "openai")
+
+def _env_int(name: str, default: int, *fallback_names: str) -> int:
+    for env_name in (name, *fallback_names):
+        value = os.getenv(env_name)
+        if not value:
+            continue
+        try:
+            return int(value)
+        except ValueError:
+            continue
+    return default
+
+
+def _health_check(provider) -> int:
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["ok", "message"],
+        "properties": {
+            "ok": {"type": "boolean"},
+            "message": {"type": "string"},
+        },
+    }
+    try:
+        result = provider.generate_structured(
+            [
+                {"role": "system", "content": "Return JSON only."},
+                {"role": "user", "content": 'Return {"ok": true, "message": "ready"} exactly.'},
+            ],
+            schema,
+            "provider_health_check",
+        )
+    except Exception as exc:
+        print(f"AI provider health check failed. {exc}")
+        return 2
+    print(f"AI provider health check passed: {result.get('message', 'ready')}")
+    return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

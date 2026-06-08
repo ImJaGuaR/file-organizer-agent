@@ -12,13 +12,8 @@ from .base import ProviderConfig, ProviderError, ProviderUnavailable
 
 class OpenAICompatibleProvider:
     def __init__(self, config: ProviderConfig):
-        model = (
-            config.model
-            or os.getenv("OPENAI_COMPATIBLE_MODEL")
-            or os.getenv("AI_MODEL")
-            or "gpt-5.4-mini"
-        )
-        base_url = config.base_url or os.getenv("OPENAI_COMPATIBLE_BASE_URL")
+        model = config.model or _env_first("OPENAI_COMPATIBLE_MODEL", "AI_MODEL", "LLM_MODEL") or "gpt-5.4-mini"
+        base_url = config.base_url or _env_first("OPENAI_COMPATIBLE_BASE_URL", "LLM_BASE_URL")
         self.config = ProviderConfig(
             provider="openai-compatible",
             model=model,
@@ -28,7 +23,7 @@ class OpenAICompatibleProvider:
         )
 
     def auth_status(self) -> dict[str, str]:
-        api_key = os.getenv("OPENAI_COMPATIBLE_API_KEY")
+        api_key = _env_first("OPENAI_COMPATIBLE_API_KEY", "LLM_API_KEY")
         return {
             "provider": self.config.provider,
             "model": self.config.model or "",
@@ -42,19 +37,22 @@ class OpenAICompatibleProvider:
         schema: dict[str, Any],
         schema_name: str,
     ) -> dict[str, Any]:
-        api_key = os.getenv("OPENAI_COMPATIBLE_API_KEY")
+        api_key = _env_first("OPENAI_COMPATIBLE_API_KEY", "LLM_API_KEY")
         if not self.config.base_url:
             raise ProviderUnavailable("AI provider unavailable: OPENAI_COMPATIBLE_BASE_URL is not set.")
 
         payload = {
             "model": self.config.model,
             "messages": messages,
-            "temperature": 0,
+            "temperature": _env_float("OPENAI_COMPATIBLE_TEMPERATURE", "AI_TEMPERATURE", "LLM_TEMPERATURE", default=0),
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {"name": schema_name, "schema": schema, "strict": True},
             },
         }
+        max_tokens = _env_int("OPENAI_COMPATIBLE_MAX_TOKENS", "AI_MAX_TOKENS", "LLM_MAX_TOKENS")
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
         headers = {
             "Content-Type": "application/json",
             "User-Agent": "Mozilla/5.0 file-organizer-agent/0.1",
@@ -93,6 +91,34 @@ def _should_send_api_key(api_key: str | None) -> bool:
     if not api_key:
         return False
     return api_key.strip().lower() not in {"secret", "none", "dummy", "not-required", "not_required"}
+
+
+def _env_first(*names: str) -> str | None:
+    for name in names:
+        value = os.getenv(name)
+        if value:
+            return value
+    return None
+
+
+def _env_int(*names: str) -> int | None:
+    value = _env_first(*names)
+    if not value:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def _env_float(*names: str, default: float) -> float:
+    value = _env_first(*names)
+    if not value:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
 
 
 def _http_error_message(exc: HTTPError) -> str:
