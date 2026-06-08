@@ -1,418 +1,230 @@
 # File Organizer Agent
 
-A safe AI-first folder organizer that observes a messy folder, asks an AI model for purpose-based labels, validates the response, previews the move plan, and moves files only after approval.
+An AI-agent-driven folder organizer. The model is the primary planner: it reads the user's natural-language request, inspects safe metadata and short previews, reasons about the folder as a whole, proposes a semantic folder structure, explains each action, and revises the plan from user feedback.
 
-Interactive mode is designed as an AI tool: it tries AI labels first for all files, then uses local rules only when the AI provider is unavailable, errors, or returns invalid JSON.
+The deterministic Python code does safety work only: scanning, preview limits, schema validation, path sanitization, duplicate handling, approval enforcement, filesystem moves, reports, and tests. Default mode has no local rule fallback and no extension-to-folder classifier.
 
-## Features
+## Safety Model
 
-- Scans a selected folder and reads file metadata.
-- Classifies documents, images, audio, videos, code, archives, spreadsheets, data, research, and unknown files.
-- Reads safe short previews from text files, code files, CSV/JSON files, and DOCX files.
-- Uses OpenAI, OpenAI-compatible APIs, or local Ollama for structured AI labels.
-- Falls back to local rules when AI fails, so the organizer still produces a safe plan.
-- Organizes by purpose first when possible, then file type. For example, a voice memo about a project idea goes to `Ideas/Audio`, not only `Audio`.
-- Creates a safe move plan before changing anything.
-- In interactive mode, type `APPLY` after previewing the plan to move files.
-- Supports preview-first delete tasks, such as emptying a trash folder.
-- Avoids overwriting files by renaming duplicates.
-- Creates only the destination folders needed by the current plan.
-- Learns filename corrections from interactive feedback and reuses them later.
-- Skips risky files and places uncertain files in `Review`.
-- Writes JSON and Markdown reports.
-- Supports simple memory rules for future corrections.
+- The app previews every plan before changing files.
+- Move/delete actions require approval unless `--apply` is explicitly passed.
+- Deletes are not permanent. Approved delete actions are moved to `_To_Delete_Review`.
+- Hidden files, symlinks, protected folders, dependency folders, and secret-like files are skipped or treated as high risk by default.
+- File previews are short, size-limited, and disabled for likely secrets such as `.env`, `id_rsa`, token, password, key, and credentials files.
+- AI destinations are validated so they cannot escape the allowed destination root or use path traversal.
+- Duplicate destination filenames are renamed safely, for example `file (1).txt`.
 
-## Supported Operating Systems
+## Install
 
-The project is pure Python and supports:
-
-- macOS
-- Linux
-- Windows 10/11
-
-Python 3.10 or newer is recommended.
-
-## Installation Guide
-
-First clone the repository:
-
-```bash
-git clone https://github.com/ImJaGuaR/file-organizer-agent.git
-cd file-organizer-agent
-```
-
-If you already cloned it, update it with:
-
-```bash
-cd file-organizer-agent
-git pull origin main
-```
-
-### macOS
+Python 3.10+ is required.
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-Run the app:
-
-```bash
-python -m file_organizer
-```
-
-### Linux
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-Run the app:
-
-```bash
-python -m file_organizer
-```
-
-### Windows PowerShell
-
-```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
-
-Run the app:
-
-```powershell
-python -m file_organizer
-```
-
-If PowerShell blocks activation, run:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
-Then activate the virtual environment again.
-
-### Windows Command Prompt
-
-```bat
-py -m venv .venv
-.venv\Scripts\activate.bat
-pip install -r requirements.txt
-python -m file_organizer
-```
-
-## AI Provider Setup
-
-Interactive mode tries AI first. Configure one AI provider before running a real demo. If no AI provider is configured, the app still works, but it will show that AI was unavailable and use local rules as a fallback.
-
-Create a local `.env` file in the project root. Do not commit `.env`; it is ignored by Git.
-
-macOS/Linux:
-
-```bash
 cp .env.example .env
 ```
 
-Windows PowerShell:
+Edit `.env` and configure one provider.
 
-```powershell
-Copy-Item .env.example .env
-```
+## Provider Setup
 
-Then edit `.env` and fill in one provider.
+OpenAI:
 
-### Option 1: OpenAI API
-
-macOS/Linux:
-
-```bash
-cat > .env <<'EOF'
+```text
 AI_PROVIDER=openai
-OPENAI_API_KEY=your_api_key_here
-EOF
+OPENAI_API_KEY=your_api_key
+OPENAI_MODEL=gpt-5.4-mini
 ```
 
-Windows PowerShell:
-
-```powershell
-@"
-AI_PROVIDER=openai
-OPENAI_API_KEY=your_api_key_here
-"@ | Set-Content .env
-```
-
-You can override the model:
-
-```bash
-OPENAI_MODEL=your_model_name
-```
-
-### Option 2: Any OpenAI-Compatible API
-
-Use this for providers that support a `/v1/chat/completions` style endpoint.
-
-macOS/Linux `.env` example:
-
-```bash
-cat > .env <<'EOF'
-AI_PROVIDER=openai-compatible
-OPENAI_COMPATIBLE_API_KEY=your_provider_key
-OPENAI_COMPATIBLE_BASE_URL=https://api.your-provider.com/v1
-OPENAI_COMPATIBLE_MODEL=provider/model-name
-AI_TIMEOUT_SECONDS=30
-EOF
-```
-
-For LM Studio, use the base URL and model name shown in the Developer tab. Example:
+OpenAI-compatible API:
 
 ```text
 AI_PROVIDER=openai-compatible
-OPENAI_COMPATIBLE_BASE_URL=http://localhost:1234/v1
-OPENAI_COMPATIBLE_API_KEY=lm-studio
-OPENAI_COMPATIBLE_MODEL=google/gemma-4-26b-a4b
-AI_TIMEOUT_SECONDS=60
+OPENAI_COMPATIBLE_API_KEY=your_provider_key
+OPENAI_COMPATIBLE_BASE_URL=https://api.example.com/v1
+OPENAI_COMPATIBLE_MODEL=provider/model
 ```
 
-Local models can be slower than cloud APIs. For direct CLI testing, you can limit AI calls:
+Ollama:
 
-```bash
-python -m file_organizer sample_messy_folder --use-ai --ai-provider openai-compatible --ai-scope all --ai-prefer --ai-custom-folders --ai-max-files 5
-```
-
-The planner sanitizes AI folder names before use, so unsafe path parts such as `..` are not allowed.
-
-### Option 3: Local Ollama
-
-This option uses a local model and does not need an API key:
-
-```bash
-cat > .env <<'EOF'
+```text
 AI_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=llama3.1
-EOF
 ```
 
-Check the current AI configuration:
+Check configuration:
 
 ```bash
 python -m file_organizer --auth-status
 ```
 
-## Quick Demo
+If the selected provider is unavailable, default agent mode fails clearly:
 
-Create a fake messy folder:
-
-macOS/Linux:
-
-```bash
-python scripts/create_sample_messy_folder.py
+```text
+AI provider unavailable, cannot create semantic organization plan.
 ```
 
-Windows:
+It will not silently organize by local rules.
 
-```bash
-python scripts/create_sample_messy_folder.py
-```
+## Run
 
-Start interactive mode:
+Interactive agent mode:
 
 ```bash
 python -m file_organizer
 ```
 
-Example prompt:
+Example request:
 
 ```text
-organize the sample folder and create folders if needed
+organize my Downloads into a clean structure, keep university stuff separate, don't touch apps or installers, and ask me before moving anything
 ```
 
-The app prints a preview plan first. To apply it, type:
-
-```text
-APPLY
-```
-
-## Interactive Agent Mode
-
-Run without a target to describe the task in plain English:
+Direct target mode:
 
 ```bash
-python -m file_organizer
+python -m file_organizer ~/Downloads
 ```
 
-Example prompt:
-
-```text
-organize my Downloads and move into the user folder, do not create the Organized folder
-```
-
-The agent will:
-
-- use AI labels first
-- show the target folder
-- choose the output folder from the prompt
-- create purpose-based folders only when needed
-- print a preview plan first
-- stay open for another request after the plan finishes
-
-After the plan, type `APPLY` and press Enter to move the files in the same run. Press Enter without typing `APPLY` to leave the preview unchanged.
-
-If the agent chooses the wrong folder, correct it before applying:
-
-```text
-FIX 2 Coursework/Text
-FIX 4 Finance/Receipts
-```
-
-The number is the plan item number. The folder is the category/subfolder you want. The agent updates the plan, saves the correction for that filename, and will remember it in future runs.
-
-Delete tasks use the same preview-first approval flow:
-
-```text
-delete trash in the trash can
-empty trash can
-delete folder /path/to/folder
-```
-
-The app lists the files or folders that would be deleted. Nothing is deleted unless you type `APPLY`.
-
-You can keep chatting in the same terminal session:
-
-```text
-organize my Downloads and move into the user folder
-delete trash in the trash can
-organize my Desktop
-```
-
-If a prompt mixes organization and deletion, the agent starts with the organization plan and queues the delete task next.
-
-You can also force the prompt mode:
+Preview a recursive plan:
 
 ```bash
-python -m file_organizer --interactive
+python -m file_organizer ~/Downloads --recursive --max-files 300
 ```
 
-## Real Folder Usage
-
-Interactive mode is recommended:
+Apply without an interactive approval prompt:
 
 ```bash
-python -m file_organizer
+python -m file_organizer ~/Downloads --apply
 ```
 
-Useful prompts:
-
-```text
-organize my Downloads
-organize my Downloads and move into the user folder
-organize folder /path/to/folder and output /path/to/destination
-organize my Desktop and create folders if needed
-delete trash in the trash can
-```
-
-If you use direct CLI mode, add AI flags explicitly:
+Use a specific provider/model:
 
 ```bash
-python -m file_organizer ~/Downloads --use-ai --ai-scope all --ai-prefer --ai-custom-folders
+python -m file_organizer ~/Downloads --provider ollama --model llama3.1
 ```
 
-Then apply only when the plan looks correct:
+## Interactive Commands
+
+After the agent shows a preview, use:
+
+- `APPLY` applies the validated plan. High-risk actions ask for an extra confirmation.
+- `CANCEL` leaves files unchanged.
+- `WHY <id>` explains an action.
+- `EDIT <id> <relative/folder/path>` changes one destination and saves a natural-language preference.
+- `SKIP <id>` changes an action to skip.
+- `DELETE <id>` marks an item for delete review; it still needs approval.
+- `MEMORY` shows active natural-language memory.
+- `FORGET MEMORY` deactivates saved memory.
+- `HELP` lists commands.
+
+Natural-language revisions also work, for example:
+
+```text
+put all screenshots into Korea trip
+make fewer folders
+actually keep PDFs in the same folder
+make it organized by project, not file type
+```
+
+The agent asks the model to revise the current structured plan instead of using a command parser as a classifier.
+
+## Memory
+
+Memory is stored as natural-language preferences in:
+
+```text
+~/.file_organizer_agent/memory.json
+```
+
+Example memory items:
+
+- User prefers university files to be grouped by course name when course is identifiable.
+- User wants screenshots from Korea/Japan trips under Travel.
+- User does not want installers moved unless explicitly asked.
+- User prefers fewer broad folders instead of many file-type folders.
+
+The app does not save brittle extension rules such as `.jpg -> Images`.
+
+## Architecture
+
+```text
+file_organizer/
+  agent/
+    loop.py       interactive agent loop and revision flow
+    prompts.py    system and repair prompts
+    tools.py      safe tool wrappers
+    schemas.py    strict plan, action, file, and memory schemas
+    memory.py     natural-language memory store
+    planner.py    AI plan generation plus deterministic validation
+    executor.py   approved safe execution
+  providers/
+    base.py
+    openai_provider.py
+    compatible_provider.py
+    ollama_provider.py
+  core/
+    scanner.py
+    preview.py
+    safety.py
+    reports.py
+    paths.py
+  cli.py
+  __main__.py
+```
+
+The model decides folder names and destinations. The code validates and executes.
+
+## Reports
+
+JSON and Markdown reports are written under the destination root's `Reports` folder. Reports include:
+
+- request
+- source and destination folders
+- provider/model
+- files scanned and previewed
+- actions proposed and applied
+- skipped items and warnings
+- user edits
+- memory updates
+- timestamp
+
+Use `--no-report` to skip report writing.
+
+## Emergency Deterministic Mode
+
+`--deterministic-basic` is available only as a clearly marked emergency mode. It is off by default and is not semantic agent mode. It stages visible files into `Review` without extension classification.
 
 ```bash
-python -m file_organizer ~/Downloads --use-ai --ai-scope all --ai-prefer --ai-custom-folders --apply
+python -m file_organizer ~/Downloads --deterministic-basic
 ```
 
-## Memory Rules
-
-You can teach the agent simple extension rules:
+## Development
 
 ```bash
-python -m file_organizer --learn-extension .ipynb Code/Notebooks
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+.venv/bin/python -m pytest -q
 ```
 
-Interactive corrections also teach the agent. For example:
+Current tests cover:
 
-```text
-FIX 1 Projects/Python
-```
+- no local rule fallback when AI is unavailable
+- one invalid-JSON repair attempt
+- path traversal and outside-root blocking
+- preview mode safety
+- approved apply moves
+- duplicate destination renaming
+- hidden/risky file handling
+- secret preview blocking
+- edit/skip interactions
+- natural-language memory
+- absence of hardcoded extension classification in default source
 
-That saves a memory rule for that filename, so future runs can reuse your correction.
+## Privacy Notes
 
-## Output Structure
+The provider receives file metadata and short safe previews only, not full file contents. Secret-like filenames are not previewed. For very private folders, use a local provider such as Ollama and review the preview table carefully before applying anything.
 
-By default, direct CLI mode moves files into an `Organized` folder inside the selected folder.
-
-Interactive mode can also move files directly into another destination. For example, if you ask to move Downloads into the user folder, it creates only the needed category folders directly under the user folder:
-
-```text
-/Users/you/Documents/Text/
-/Users/you/Research/
-/Users/you/Ideas/Text/
-```
-
-It does not create every possible category ahead of time.
-
-Typical category structure:
-
-```text
-Organized/
-  Documents/
-    PDFs/
-    Word/
-    Text/
-    Presentations/
-  Images/
-    Screenshots/
-    Photos/
-    Diagrams/
-    Other/
-  Code/
-  Data/
-    Spreadsheets/
-    CSV/
-    JSON/
-  Archives/
-  Audio/
-  Videos/
-  Research/
-  Ideas/
-    Audio/
-    Text/
-  Finance/
-    PDFs/
-    CSV/
-    Spreadsheets/
-  Coursework/
-    PDFs/
-    Presentations/
-  Meetings/
-  Backups/
-    Archives/
-  Review/
-  Reports/
-```
-
-## Safety
-
-The agent never moves or deletes files unless you pass `--apply` in direct CLI mode or type `APPLY` after an interactive preview. It also avoids overwriting by generating names like `file (1).pdf` when a destination already exists.
-
-## AI Authentication Notes
-
-This project does not reuse your Codex or ChatGPT login. The OpenAI API uses API keys for normal server-side authentication, so the key is read from `OPENAI_API_KEY` or `.env`; it is not stored in GitHub.
-
-The AI labeling module sends only file metadata and a short text preview, not the whole folder. It asks the model to return structured JSON with:
-
-- category
-- subfolder
-- confidence
-- summary
-- reason
-
-Interactive mode prefers valid AI labels. If the AI provider is unavailable, errors, returns invalid JSON, or suggests an unsafe folder name, the agent falls back to local rules and explains that in the plan.
